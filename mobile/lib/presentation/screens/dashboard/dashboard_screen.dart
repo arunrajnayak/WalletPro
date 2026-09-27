@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../data/datasources/local/sms_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
+import '../../providers/pending_count_provider.dart';
 import '../../widgets/suggestion_card.dart';
 
-class DashboardScreen extends StatefulWidget {
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  State<DashboardScreen> createState() => _DashboardScreenState();
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   final ApiClient _api = ApiClient();
   final SmsReaderService _smsReader = SmsReaderService();
 
@@ -23,6 +26,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   DateTime? _lastReviewedDate;
   DateTime? _syncStartDate;
   bool _autoAdvance = true;
+
+  Map<String, dynamic>? _quickViewData;
+  Map<String, dynamic>? _walletProfile;
   List<dynamic> _recentSuggestions = [];
   List<dynamic> _categories = [];
   List<dynamic> _accounts = [];
@@ -33,15 +39,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _loadDashboard();
   }
 
-  Future<void> _loadDashboard() async {
+  Future<void> _loadDashboard({bool forceRefresh = false}) async {
     setState(() => _isLoading = true);
     try {
       final futures = await Future.wait([
         _api.getSuggestionStats(),
-        _api.getUserProfile(),
+        _api.getUserProfile(forceRefresh: forceRefresh),
         _api.getSuggestions(status: 'pending', limit: 5),
-        _api.getWalletCategories(),
-        _api.getWalletAccounts(),
+        _api.getWalletCategories(forceRefresh: forceRefresh),
+        _api.getWalletAccounts(forceRefresh: forceRefresh),
+        _api.getQuickView(forceRefresh: forceRefresh).catchError((_) => <String, dynamic>{}),
+        _api.getWalletProfile(forceRefresh: forceRefresh).catchError((_) => <String, dynamic>{}),
       ]);
 
       final stats = futures[0] as Map<String, dynamic>;
@@ -49,6 +57,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final recents = futures[2] as List<dynamic>;
       final categories = futures[3] as List<dynamic>;
       final accounts = futures[4] as List<dynamic>;
+      final quickView = futures[5] as Map<String, dynamic>;
+      final walletProfile = futures[6] as Map<String, dynamic>;
 
       final prefs = (profile['preferences'] as Map<String, dynamic>?) ?? {};
       DateTime? revDate;
@@ -60,9 +70,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         strtDate = DateTime.tryParse(prefs['syncStartDate'].toString());
       }
 
+      final pending = stats['pending'] ?? 0;
+      ref.read(pendingCountProvider.notifier).state = pending;
+
       if (mounted) {
         setState(() {
-          _pendingCount = stats['pending'] ?? 0;
+          _pendingCount = pending;
           _approvedCount = stats['approved'] ?? 0;
           _lastReviewedDate = revDate;
           _syncStartDate = strtDate;
@@ -70,6 +83,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _recentSuggestions = recents;
           _categories = categories;
           _accounts = accounts;
+          _quickViewData = quickView;
+          _walletProfile = walletProfile;
           _isLoading = false;
         });
       }
@@ -107,9 +122,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
       }
 
+      final updatedPending = (_pendingCount - 1).clamp(0, 9999);
+      ref.read(pendingCountProvider.notifier).state = updatedPending;
+
       setState(() {
         _recentSuggestions.removeWhere((item) => item['id'] == id);
-        _pendingCount = (_pendingCount - 1).clamp(0, 9999);
+        _pendingCount = updatedPending;
         _approvedCount += 1;
       });
 
@@ -142,9 +160,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
       }
 
+      final updatedPending = (_pendingCount - 1).clamp(0, 9999);
+      ref.read(pendingCountProvider.notifier).state = updatedPending;
+
       setState(() {
         _recentSuggestions.removeWhere((item) => item['id'] == id);
-        _pendingCount = (_pendingCount - 1).clamp(0, 9999);
+        _pendingCount = updatedPending;
       });
 
       if (mounted) {
@@ -169,7 +190,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         sinceDate: effectiveCutoff,
         apiClient: _api,
       );
-      await _loadDashboard();
+      await _loadDashboard(forceRefresh: true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -178,15 +199,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ? 'Found ${summary['created']} new transactions (scanned ${summary['scanned']} SMS)!'
                   : 'Scanned ${summary['scanned']} SMS • No new transactions found.',
             ),
-            backgroundColor: Colors.green.shade700,
-            duration: const Duration(seconds: 4),
+            duration: const Duration(seconds: 3),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('SMS Scan failed: $e'), backgroundColor: Colors.red.shade700),
+          SnackBar(content: Text('SMS Scan failed: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -197,227 +217,118 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final effectiveCutoff = _lastReviewedDate ?? _syncStartDate;
+
+    final netWorth = (_quickViewData?['summary']?['netWorth'] as num?)?.toDouble() ?? 0.0;
+    final totalAssets = (_quickViewData?['summary']?['totalAssets'] as num?)?.toDouble() ?? 0.0;
+    final totalLiabilities = (_quickViewData?['summary']?['totalLiabilities'] as num?)?.toDouble() ?? 0.0;
+
+    final isSyncing = _walletProfile?['syncState'] == 'syncing';
+    final isConnected = _walletProfile?['connected'] == true;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('WalletPro'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
-            onPressed: _loadDashboard,
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: 'Settings',
-            onPressed: () => context.push('/settings'),
-          ),
-        ],
+        title: Row(
+          children: [
+            const Text('WalletPro'),
+            const Spacer(),
+            // Sync status pill
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              decoration: BoxDecoration(
+                color: isSyncing
+                    ? Colors.orange.shade50
+                    : (isConnected ? Colors.green.shade50 : Colors.grey.shade100),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isSyncing
+                      ? Colors.orange.shade300
+                      : (isConnected ? Colors.green.shade300 : Colors.grey.shade300),
+                  width: 0.8,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isSyncing
+                          ? Colors.orange.shade700
+                          : (isConnected ? Colors.green.shade700 : Colors.grey.shade600),
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    isSyncing ? 'Syncing...' : (isConnected ? 'Wallet Live' : 'Disconnected'),
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: isSyncing
+                          ? Colors.orange.shade900
+                          : (isConnected ? Colors.green.shade900 : Colors.grey.shade700),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadDashboard,
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : ListView(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: () => _loadDashboard(forceRefresh: true),
+              child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 children: [
-                  // ----------------------------------------------------
-                  // Sliding Window Status Card
-                  // ----------------------------------------------------
-                  Card(
-                    elevation: 0,
-                    color: theme.colorScheme.primaryContainer.withOpacity(0.3),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      side: BorderSide(color: theme.colorScheme.primary.withOpacity(0.2)),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.history_toggle_off, color: theme.colorScheme.primary),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Sliding Window Cutoff',
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: theme.colorScheme.primary,
-                                ),
-                              ),
-                              const Spacer(),
-                              TextButton(
-                                onPressed: () => context.push('/settings'),
-                                child: const Text('Settings'),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            effectiveCutoff != null
-                                ? 'Transactions reviewed up to ${DateFormatter.formatDate(effectiveCutoff)}'
-                                : 'No cutoff set (all SMS processed)',
-                            style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _autoAdvance
-                                ? 'Old SMS prior to this date are automatically skipped.'
-                                : 'Auto-advance is paused.',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              style: FilledButton.styleFrom(
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
-                              icon: _isScanning
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                    )
-                                  : const Icon(Icons.sms_outlined, size: 18),
-                              label: Text(_isScanning ? 'Scanning SMS Inbox...' : 'Scan SMS Inbox (From Cutoff)'),
-                              onPressed: _isScanning ? null : _scanSmsInbox,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  // 1. Hero Net Worth Glance Card
+                  _buildNetWorthHeroCard(netWorth, totalAssets, totalLiabilities, theme, isDark),
 
                   const SizedBox(height: 16),
 
-                  // ----------------------------------------------------
-                  // Summary Stats Row
-                  // ----------------------------------------------------
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Card(
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            side: BorderSide(color: theme.colorScheme.outlineVariant),
-                          ),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(14),
-                            onTap: () => context.push('/suggestions'),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    '$_pendingCount',
-                                    style: theme.textTheme.headlineMedium?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                      color: _pendingCount > 0 ? Colors.orange.shade800 : Colors.green.shade800,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text('Pending Review', style: theme.textTheme.bodySmall),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Card(
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            side: BorderSide(color: theme.colorScheme.outlineVariant),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '$_approvedCount',
-                                  style: theme.textTheme.headlineMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: theme.colorScheme.primary,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text('Synced to Wallet', style: theme.textTheme.bodySmall),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  // ----------------------------------------------------
-                  // Wallet Accounts QuickView Banner
-                  // ----------------------------------------------------
-                  Card(
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      side: BorderSide(color: Colors.blue.shade200),
-                    ),
-                    color: theme.colorScheme.primaryContainer.withOpacity(0.25),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(16),
-                      onTap: () => context.push('/quickview'),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              backgroundColor: Colors.blueAccent.withOpacity(0.15),
-                              child: const Icon(Icons.grid_view_rounded, color: Colors.blueAccent),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Wallet Accounts QuickView',
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                                  ),
-                                  Text(
-                                    '${_accounts.length} active accounts • Live balances & grid',
-                                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
+                  // 2. Quick Action Grid
+                  _buildQuickActionGrid(theme, isDark),
 
                   const SizedBox(height: 16),
 
-                  // ----------------------------------------------------
-                  // Pending Queue Header
-                  // ----------------------------------------------------
+                  // 3. SMS Cutoff & Scan Banner
+                  _buildSmsCutoffCard(effectiveCutoff, theme, isDark),
+
+                  const SizedBox(height: 16),
+
+                  // 4. Pending Review Queue Header
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'Pending Review',
-                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                      Row(
+                        children: [
+                          const Text(
+                            'Pending Review',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          if (_pendingCount > 0) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade100,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '$_pendingCount',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.orange.shade900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                       if (_recentSuggestions.isNotEmpty)
                         TextButton(
@@ -429,79 +340,299 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                   const SizedBox(height: 8),
 
+                  // 5. Recent Suggestion Cards
                   if (_recentSuggestions.isEmpty)
-                    Card(
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        side: BorderSide(color: theme.colorScheme.outlineVariant),
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surface,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
                       ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 16),
-                        child: Column(
-                          children: [
-                            Icon(Icons.done_all, size: 48, color: Colors.green.shade600),
-                            const SizedBox(height: 12),
-                            const Text(
-                              'All Transactions Reviewed!',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Incoming SMS will appear here automatically.',
-                              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
-                            ),
-                          ],
-                        ),
+                      child: Column(
+                        children: [
+                          Icon(Icons.check_circle_outline_rounded, size: 48, color: Colors.green.shade600),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'All Caught Up!',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'No pending SMS transactions waiting for approval.',
+                            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                          ),
+                        ],
                       ),
                     )
                   else
                     ..._recentSuggestions.map(
-                      (item) => SuggestionCard(
-                        key: Key(item['id']),
-                        suggestion: item,
-                        categories: _categories,
-                        accounts: _accounts,
-                        onApprove: _handleApprove,
-                        onReject: _handleReject,
+                      (item) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: SuggestionCard(
+                          key: Key(item['id']),
+                          suggestion: item,
+                          categories: _categories,
+                          accounts: _accounts,
+                          onApprove: _handleApprove,
+                          onReject: _handleReject,
+                        ),
                       ),
                     ),
+                  const SizedBox(height: 16),
                 ],
               ),
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: 0,
-        type: BottomNavigationBarType.fixed,
-        items: [
-          const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          const BottomNavigationBarItem(icon: Icon(Icons.grid_view_rounded), label: 'QuickView'),
-          BottomNavigationBarItem(
-            icon: Badge(
-              isLabelVisible: _pendingCount > 0,
-              label: Text('$_pendingCount'),
-              child: const Icon(Icons.list_alt),
             ),
-            label: 'Review',
+    );
+  }
+
+  Widget _buildNetWorthHeroCard(
+    double netWorth,
+    double assets,
+    double liabilities,
+    ThemeData theme,
+    bool isDark,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.25 : 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
-          const BottomNavigationBarItem(icon: Icon(Icons.insights_outlined), label: 'Insights'),
-          const BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), label: 'Settings'),
         ],
-        onTap: (index) {
-          switch (index) {
-            case 1:
-              context.push('/quickview');
-              break;
-            case 2:
-              context.push('/suggestions');
-              break;
-            case 3:
-              context.push('/insights');
-              break;
-            case 4:
-              context.push('/settings');
-              break;
-          }
-        },
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'TOTAL NET WORTH',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.8,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              InkWell(
+                onTap: () => context.push('/quickview'),
+                borderRadius: BorderRadius.circular(10),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  child: Row(
+                    children: [
+                      Text(
+                        'View All Accounts',
+                        style: TextStyle(fontSize: 12, color: theme.colorScheme.primary, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(Icons.chevron_right_rounded, size: 16, color: theme.colorScheme.primary),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            CurrencyFormatter.formatINR(netWorth),
+            style: const TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF064E3B).withOpacity(0.3) : const Color(0xFFF0FDF4),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.green.withOpacity(0.2)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Assets', style: TextStyle(fontSize: 11, color: Colors.green.shade700, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 2),
+                      Text(
+                        CurrencyFormatter.formatINR(assets, compact: true),
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.green.shade800),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF7F1D1D).withOpacity(0.3) : const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.red.withOpacity(0.2)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Liabilities', style: TextStyle(fontSize: 11, color: Colors.red.shade700, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 2),
+                      Text(
+                        CurrencyFormatter.formatINR(liabilities, compact: true),
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.red.shade800),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickActionGrid(ThemeData theme, bool isDark) {
+    return Row(
+      children: [
+        _buildActionTile(
+          icon: Icons.sms_outlined,
+          label: _isScanning ? 'Scanning...' : 'Scan SMS',
+          color: const Color(0xFF3B82F6),
+          onTap: _isScanning ? null : _scanSmsInbox,
+          theme: theme,
+        ),
+        const SizedBox(width: 10),
+        _buildActionTile(
+          icon: Icons.grid_view_rounded,
+          label: 'QuickView',
+          color: const Color(0xFF8B5CF6),
+          onTap: () => context.push('/quickview'),
+          theme: theme,
+        ),
+        const SizedBox(width: 10),
+        _buildActionTile(
+          icon: Icons.insights_rounded,
+          label: 'Insights',
+          color: const Color(0xFF10B981),
+          onTap: () => context.push('/insights'),
+          theme: theme,
+        ),
+        const SizedBox(width: 10),
+        _buildActionTile(
+          icon: Icons.checklist_rtl_rounded,
+          label: 'Review ($_pendingCount)',
+          color: const Color(0xFFF59E0B),
+          onTap: () => context.push('/suggestions'),
+          theme: theme,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionTile({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback? onTap,
+    required ThemeData theme,
+  }) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
+          ),
+          child: Column(
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: color.withOpacity(0.12),
+                child: Icon(icon, color: color, size: 18),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSmsCutoffCard(DateTime? effectiveCutoff, ThemeData theme, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.history_rounded, size: 18, color: theme.colorScheme.primary),
+                  const SizedBox(width: 6),
+                  const Text('SMS Detection Window', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                ],
+              ),
+              TextButton(
+                onPressed: () => context.push('/settings'),
+                style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                child: const Text('Settings'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            effectiveCutoff != null
+                ? 'Reviewing transactions from ${DateFormatter.formatDate(effectiveCutoff)}'
+                : 'No cutoff set (all SMS processed)',
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            _autoAdvance ? 'Cutoff advances automatically upon review.' : 'Auto-advance is paused.',
+            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: FilledButton.icon(
+              icon: _isScanning
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.sync_rounded, size: 18),
+              label: Text(_isScanning ? 'Scanning Inbox...' : 'Scan New SMS Inbox'),
+              onPressed: _isScanning ? null : _scanSmsInbox,
+            ),
+          ),
+        ],
       ),
     );
   }

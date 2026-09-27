@@ -63,6 +63,44 @@ router.post('/connect', authenticate, async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/wallet/profile - Return connection status, syncState, rateLimit, and budget settings
+router.get('/profile', authenticate, async (req: Request, res: Response) => {
+  const userId = req.user.id;
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+
+  if (!user || !user.walletApiToken) {
+    return res.json({
+      connected: false,
+      syncState: 'disconnected',
+      rateLimit: null,
+      budgetSettings: null,
+      accountsCount: 0,
+      categoriesCount: 0,
+    });
+  }
+
+  try {
+    const client = new WalletClient(user.walletApiToken);
+    const [profile, accountsCount, categoriesCount] = await Promise.all([
+      client.getClientProfile().catch(() => null),
+      prisma.walletAccount.count({ where: { userId, isActive: true } }),
+      prisma.walletCategoryCache.count({ where: { userId } }),
+    ]);
+
+    res.json({
+      connected: true,
+      syncState: profile?.syncState || 'idle',
+      rateLimit: profile?.rateLimit || null,
+      budgetSettings: profile?.budgetSettings || null,
+      baseCurrency: profile?.baseCurrency || 'INR',
+      accountsCount,
+      categoriesCount,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch Wallet profile', details: err.message });
+  }
+});
+
 // GET /api/wallet/accounts - Get accounts (returns active accounts only by default; pass ?includeArchived=true for all)
 router.get('/accounts', authenticate, async (req: Request, res: Response) => {
   const userId = req.user.id;
@@ -273,10 +311,15 @@ router.get('/records', authenticate, async (req: Request, res: Response) => {
     const client = new WalletClient(user.walletApiToken);
     const limit = Math.min(Number(req.query.limit) || 20, 50);
     const accountId = req.query.accountId as string | undefined;
-    const records = await client.getRecords({
-      limit,
-      ...(accountId ? { accountId } : {}),
-    });
+    const recordType = req.query.recordType as string | undefined;
+    const counterParty = req.query.counterParty as string | undefined;
+
+    const filters: any = { limit };
+    if (accountId) filters.accountId = accountId;
+    if (recordType === 'expense' || recordType === 'income') filters.recordType = recordType;
+    if (counterParty && counterParty.trim().length > 0) filters.counterParty = `contains-i.${counterParty.trim()}`;
+
+    const records = await client.getRecords(filters);
     res.json(records);
   } catch (err: any) {
     console.error('Records fetch error:', err.response?.data || err.message);

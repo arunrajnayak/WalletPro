@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/datasources/remote/api_client.dart';
-import '../../../core/constants/api_constants.dart';
 import '../../../core/utils/date_formatter.dart';
+import '../../providers/theme_provider.dart';
 
-class SettingsScreen extends StatefulWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final ApiClient _api = ApiClient();
   bool _isLoading = true;
   bool _isSyncing = false;
@@ -23,6 +24,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Wallet State
   List<dynamic> _accounts = [];
   bool _walletConnected = false;
+  Map<String, dynamic>? _walletProfile;
+
+  String _accountSearchQuery = '';
 
   @override
   void initState() {
@@ -33,28 +37,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     setState(() => _isLoading = true);
     try {
-      final profile = await _api.getUserProfile();
+      final futures = await Future.wait([
+        _api.getUserProfile(),
+        _api.getWalletAccounts(includeArchived: false),
+        _api.getWalletProfile().catchError((_) => <String, dynamic>{}),
+      ]);
+
+      final profile = futures[0] as Map<String, dynamic>;
+      final accounts = futures[1] as List<dynamic>;
+      final walletProfile = futures[2] as Map<String, dynamic>;
+
       final prefs = (profile['preferences'] as Map<String, dynamic>?) ?? {};
 
+      DateTime? revDate;
+      DateTime? strtDate;
       if (prefs['lastReviewedDate'] != null) {
-        _lastReviewedDate = DateTime.tryParse(prefs['lastReviewedDate']);
+        revDate = DateTime.tryParse(prefs['lastReviewedDate']);
       }
       if (prefs['syncStartDate'] != null) {
-        _syncStartDate = DateTime.tryParse(prefs['syncStartDate']);
+        strtDate = DateTime.tryParse(prefs['syncStartDate']);
       }
-      _autoAdvanceWindow = prefs['autoAdvanceWindow'] ?? true;
-      _walletConnected = profile['walletApiToken'] != null;
 
-      // Load accounts
-      _accounts = await _api.getWalletAccounts();
+      if (mounted) {
+        setState(() {
+          _lastReviewedDate = revDate;
+          _syncStartDate = strtDate;
+          _autoAdvanceWindow = prefs['autoAdvanceWindow'] ?? true;
+          _walletConnected = profile['walletApiToken'] != null;
+          _accounts = accounts;
+          _walletProfile = walletProfile;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error loading settings: $e')),
         );
+        setState(() => _isLoading = false);
       }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -102,7 +123,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
 
     if (picked != null) {
-      // Set to beginning of that selected day
       final startOfDay = DateTime(picked.year, picked.month, picked.day);
       await _saveWindowSettings(newDate: startOfDay);
     }
@@ -138,35 +158,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text('Map "${account['name']}"'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Enter the last 4 digits of your card or bank account:'),
-            const SizedBox(height: 12),
+            const Text(
+              'Enter the last 4 digits of your card or bank account from transaction SMS alerts:',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 14),
             TextField(
               controller: controller,
-              keyboardType: TextInputType.number,
-              maxLength: 4,
-              decoration: const InputDecoration(
-                labelText: 'Last 4 Digits (e.g. 08f7 or 1234)',
-                border: OutlineInputBorder(),
+              keyboardType: TextInputType.text,
+              maxLength: 10,
+              decoration: InputDecoration(
+                labelText: 'Last 4 Digits (e.g. 1234 or 08f7)',
+                filled: true,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save Mapping')),
         ],
       ),
     );
 
     if (confirmed == true) {
+      final digits = controller.text.trim();
       try {
-        await _api.mapAccountLast4(account['id'], controller.text.trim());
+        await _api.mapAccountLast4(account['id'], digits);
         await _loadSettings();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Mapped ${account['name']} to •••• $digits')),
+          );
+        }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -180,279 +211,376 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final currentThemeMode = ref.watch(themeModeProvider);
     final effectiveCutoff = _lastReviewedDate ?? _syncStartDate;
+
+    final rateLimit = _walletProfile?['rateLimit'] as Map<String, dynamic>?;
+    final remainingCalls = rateLimit?['remaining'] ?? 0;
+    final capacityCalls = rateLimit?['capacity'] ?? 1500;
+    final syncState = _walletProfile?['syncState'] ?? (_walletConnected ? 'idle' : 'disconnected');
+
+    final filteredAccounts = _accounts.where((a) {
+      if (_accountSearchQuery.isEmpty) return true;
+      final q = _accountSearchQuery.toLowerCase();
+      final name = (a['name'] ?? '').toString().toLowerCase();
+      final last4 = (a['last4Digits'] ?? '').toString().toLowerCase();
+      return name.contains(q) || last4.contains(q);
+    }).toList();
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Settings'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadSettings,
-            tooltip: 'Reload',
-          ),
-        ],
+        title: const Text('Settings & Configuration'),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               children: [
-                // ----------------------------------------------------
-                // Section 1: Sliding Window / Reviewed Date
-                // ----------------------------------------------------
-                Card(
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(color: theme.colorScheme.outlineVariant),
+                // 1. BudgetBakers Wallet Connection & Health Card
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.history_toggle_off, color: theme.colorScheme.primary),
-                            const SizedBox(width: 12),
-                            Text(
-                              'Detection Window (Sliding Filter)',
-                              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Transactions dated prior to this date are automatically ignored so old SMS messages do not flood your queue.',
-                          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                        ),
-                        const Divider(height: 24),
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: CircleAvatar(
-                            backgroundColor: theme.colorScheme.primaryContainer,
-                            child: Icon(Icons.calendar_today, color: theme.colorScheme.onPrimaryContainer, size: 20),
-                          ),
-                          title: const Text('Reviewed Up To (Cutoff Date)'),
-                          subtitle: Text(
-                            effectiveCutoff != null
-                                ? DateFormatter.formatFull(effectiveCutoff)
-                                : 'Not set (all transactions processed)',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: effectiveCutoff != null ? theme.colorScheme.primary : null,
-                            ),
-                          ),
-                          trailing: OutlinedButton(
-                            onPressed: _pickDate,
-                            child: const Text('Change Date'),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        // Quick Presets
-                        Wrap(
-                          spacing: 8,
-                          children: [
-                            ActionChip(
-                              label: const Text('Today'),
-                              onPressed: () {
-                                final now = DateTime.now();
-                                _saveWindowSettings(newDate: DateTime(now.year, now.month, now.day));
-                              },
-                            ),
-                            ActionChip(
-                              label: const Text('7 Days Ago'),
-                              onPressed: () {
-                                final d = DateTime.now().subtract(const Duration(days: 7));
-                                _saveWindowSettings(newDate: DateTime(d.year, d.month, d.day));
-                              },
-                            ),
-                            ActionChip(
-                              label: const Text('1st of Month'),
-                              onPressed: () {
-                                final now = DateTime.now();
-                                _saveWindowSettings(newDate: DateTime(now.year, now.month, 1));
-                              },
-                            ),
-                          ],
-                        ),
-                        const Divider(height: 24),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Auto-Advance Sliding Window'),
-                          subtitle: const Text(
-                            'Automatically move the cutoff date forward to the transaction date whenever you approve or reject a transaction.',
-                          ),
-                          value: _autoAdvanceWindow,
-                          onChanged: (val) => _saveWindowSettings(autoAdvance: val),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // ----------------------------------------------------
-                // Section 2: BudgetBakers Wallet Connection
-                // ----------------------------------------------------
-                Card(
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(color: theme.colorScheme.outlineVariant),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.account_balance_wallet, color: theme.colorScheme.primary),
-                            const SizedBox(width: 12),
-                            Text(
-                              'BudgetBakers Wallet Connection',
-                              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(
-                            _walletConnected ? Icons.check_circle : Icons.error,
-                            color: _walletConnected ? Colors.green : Colors.orange,
-                          ),
-                          title: Text(_walletConnected ? 'Wallet Pro Connected' : 'Not Connected'),
-                          subtitle: const Text('Direct REST API v2.0 integration'),
-                          trailing: FilledButton.tonalIcon(
-                            icon: _isSyncing
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  )
-                                : const Icon(Icons.sync, size: 18),
-                            label: const Text('Sync Now'),
-                            onPressed: _isSyncing ? null : _triggerWalletSync,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // ----------------------------------------------------
-                // Section 3: Account Last-4 Digit Mapping
-                // ----------------------------------------------------
-                Card(
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(color: theme.colorScheme.outlineVariant),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.credit_card, color: theme.colorScheme.primary),
-                            const SizedBox(width: 12),
-                            Text(
-                              'Bank Account Mapping (Last 4 Digits)',
-                              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Map your bank card/account numbers so incoming SMS can automatically assign transactions to the right Wallet account.',
-                          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                        ),
-                        const SizedBox(height: 12),
-                        if (_accounts.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 12),
-                            child: Text('No accounts found. Tap "Sync Now" above to load your accounts.'),
-                          )
-                        else
-                          ..._accounts
-                              .where((acc) => acc['isActive'] != false && acc['archived'] != true)
-                              .map((acc) {
-                            final last4 = acc['last4Digits'];
-                            final type = (acc['accountType'] ?? 'General').toString();
-                            IconData icon = Icons.account_balance_outlined;
-                            if (type.toLowerCase().contains('credit')) {
-                              icon = Icons.credit_card;
-                            } else if (type.toLowerCase().contains('cash')) {
-                              icon = Icons.payments_outlined;
-                            }
-
-                            return ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: CircleAvatar(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              CircleAvatar(
                                 radius: 16,
                                 backgroundColor: theme.colorScheme.primaryContainer,
-                                child: Icon(icon, size: 16, color: theme.colorScheme.onPrimaryContainer),
+                                child: Icon(Icons.account_balance_wallet, size: 16, color: theme.colorScheme.primary),
                               ),
-                              title: Text(acc['name'] ?? 'Account'),
-                              subtitle: Text(
-                                last4 != null ? 'Card/Acct: •••• $last4 • $type' : 'No digits mapped • $type',
-                                style: TextStyle(color: last4 != null ? Colors.green.shade700 : Colors.grey),
+                              const SizedBox(width: 10),
+                              const Text(
+                                'Wallet API Connection',
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                               ),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.edit, size: 20),
-                                onPressed: () => _showMapAccountDialog(acc),
+                            ],
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: _walletConnected ? Colors.green.shade50 : Colors.red.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              _walletConnected ? 'Connected' : 'Disconnected',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: _walletConnected ? Colors.green.shade800 : Colors.red.shade800,
                               ),
-                            );
-                          }),
-                      ],
-                    ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Bank Sync State', style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+                                const SizedBox(height: 2),
+                                Text(
+                                  syncState == 'syncing' ? 'Syncing...' : 'Idle / Up to date',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (rateLimit != null)
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('API Quota', style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '$remainingCalls / $capacityCalls left',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 44,
+                        child: FilledButton.tonalIcon(
+                          icon: _isSyncing
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.sync, size: 18),
+                          label: Text(_isSyncing ? 'Syncing Wallet...' : 'Force Sync Accounts & Categories'),
+                          onPressed: _isSyncing ? null : _triggerWalletSync,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
 
                 const SizedBox(height: 16),
 
-                // ----------------------------------------------------
-                // Section 4: System Information
-                // ----------------------------------------------------
-                Card(
-                  elevation: 0,
-                  color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(color: theme.colorScheme.outlineVariant),
+                // 2. App Theme Mode Preference Card
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Server Configuration',
-                          style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Backend: ${ApiConstants.backendBaseUrl}',
-                          style: theme.textTheme.bodySmall,
-                        ),
-                        Text(
-                          'Database: Neon Serverless PostgreSQL',
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 16,
+                            backgroundColor: theme.colorScheme.secondaryContainer,
+                            child: Icon(Icons.palette_outlined, size: 16, color: theme.colorScheme.secondary),
+                          ),
+                          const SizedBox(width: 10),
+                          const Text('App Appearance', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          _buildThemeOption(
+                            label: 'System',
+                            icon: Icons.brightness_auto,
+                            isSelected: currentThemeMode == ThemeMode.system,
+                            onTap: () => ref.read(themeModeProvider.notifier).state = ThemeMode.system,
+                            theme: theme,
+                          ),
+                          const SizedBox(width: 8),
+                          _buildThemeOption(
+                            label: 'Light',
+                            icon: Icons.light_mode_outlined,
+                            isSelected: currentThemeMode == ThemeMode.light,
+                            onTap: () => ref.read(themeModeProvider.notifier).state = ThemeMode.light,
+                            theme: theme,
+                          ),
+                          const SizedBox(width: 8),
+                          _buildThemeOption(
+                            label: 'Dark',
+                            icon: Icons.dark_mode_outlined,
+                            isSelected: currentThemeMode == ThemeMode.dark,
+                            onTap: () => ref.read(themeModeProvider.notifier).state = ThemeMode.dark,
+                            theme: theme,
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
+
+                const SizedBox(height: 16),
+
+                // 3. Sliding Window / Detection Date Card
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 16,
+                            backgroundColor: theme.colorScheme.primaryContainer,
+                            child: Icon(Icons.history_toggle_off, size: 16, color: theme.colorScheme.primary),
+                          ),
+                          const SizedBox(width: 10),
+                          const Text('Detection Window (Sliding Filter)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Transactions prior to this date are automatically skipped to avoid processing old historical messages.',
+                        style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                      ),
+                      const Divider(height: 24),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: CircleAvatar(
+                          radius: 18,
+                          backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                          child: const Icon(Icons.calendar_today, size: 18),
+                        ),
+                        title: const Text('Reviewed Up To (Cutoff Date)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        subtitle: Text(
+                          effectiveCutoff != null
+                              ? DateFormatter.formatFull(effectiveCutoff)
+                              : 'Not set (all transactions processed)',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: effectiveCutoff != null ? theme.colorScheme.primary : null,
+                          ),
+                        ),
+                        trailing: OutlinedButton(
+                          onPressed: _pickDate,
+                          child: const Text('Change'),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Auto-Advance Sliding Window', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        subtitle: const Text(
+                          'Automatically move the cutoff date forward upon reviewing transactions.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        value: _autoAdvanceWindow,
+                        onChanged: (val) => _saveWindowSettings(autoAdvance: val),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // 4. Account Last-4 Digit Mappings Card
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 16,
+                                backgroundColor: theme.colorScheme.primaryContainer,
+                                child: Icon(Icons.credit_card, size: 16, color: theme.colorScheme.primary),
+                              ),
+                              const SizedBox(width: 10),
+                              const Text('Account Card Mappings', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          Text('${_accounts.length} active', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Map bank accounts & credit cards to their last 4 digits so SMS transactions auto-assign to the correct account.',
+                        style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        decoration: InputDecoration(
+                          hintText: 'Search active accounts...',
+                          prefixIcon: const Icon(Icons.search, size: 18),
+                          filled: true,
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                        ),
+                        onChanged: (val) => setState(() => _accountSearchQuery = val.trim()),
+                      ),
+                      const SizedBox(height: 8),
+                      ...filteredAccounts.map((acc) {
+                        final last4 = acc['last4Digits'];
+                        final type = acc['accountType'] ?? 'General';
+
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(acc['name'] ?? 'Account', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                          subtitle: Text(type, style: const TextStyle(fontSize: 12)),
+                          trailing: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: last4 != null ? Colors.green.shade50 : Colors.orange.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: last4 != null ? Colors.green.shade200 : Colors.orange.shade200,
+                              ),
+                            ),
+                            child: Text(
+                              last4 != null ? '•••• $last4' : 'Tap to Map',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: last4 != null ? Colors.green.shade800 : Colors.orange.shade800,
+                              ),
+                            ),
+                          ),
+                          onTap: () => _showMapAccountDialog(acc),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
               ],
             ),
+    );
+  }
+
+  Widget _buildThemeOption({
+    required String label,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+    required ThemeData theme,
+  }) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected ? theme.colorScheme.primaryContainer : theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected ? theme.colorScheme.primary : Colors.transparent,
+              width: 1.5,
+            ),
+          ),
+          child: Column(
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: isSelected ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  color: isSelected ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

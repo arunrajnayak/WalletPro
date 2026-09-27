@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../data/datasources/local/sms_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
+import '../../providers/pending_count_provider.dart';
 import '../../widgets/suggestion_card.dart';
 
-class SuggestionsScreen extends StatefulWidget {
+class SuggestionsScreen extends ConsumerStatefulWidget {
   const SuggestionsScreen({super.key});
 
   @override
-  State<SuggestionsScreen> createState() => _SuggestionsScreenState();
+  ConsumerState<SuggestionsScreen> createState() => _SuggestionsScreenState();
 }
 
-class _SuggestionsScreenState extends State<SuggestionsScreen> with SingleTickerProviderStateMixin {
+class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with SingleTickerProviderStateMixin {
   final ApiClient _api = ApiClient();
   final SmsReaderService _smsReader = SmsReaderService();
   late TabController _tabController;
@@ -98,6 +100,9 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> with SingleTicker
           _autoAdvanceWindow = prefs['autoAdvanceWindow'] ?? true;
           _isLoading = false;
         });
+        if (_currentStatusFilter == 'pending') {
+          ref.read(pendingCountProvider.notifier).state = suggestionsRes.length;
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -143,6 +148,9 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> with SingleTicker
       setState(() {
         _suggestions.removeWhere((item) => item['id'] == id);
       });
+      if (_currentStatusFilter == 'pending') {
+        ref.read(pendingCountProvider.notifier).state = _suggestions.length;
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -185,6 +193,9 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> with SingleTicker
       setState(() {
         _suggestions.removeWhere((item) => item['id'] == id);
       });
+      if (_currentStatusFilter == 'pending') {
+        ref.read(pendingCountProvider.notifier).state = _suggestions.length;
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

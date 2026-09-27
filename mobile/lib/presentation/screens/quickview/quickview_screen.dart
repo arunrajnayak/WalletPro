@@ -834,39 +834,6 @@ class _QuickViewScreenState extends State<QuickViewScreen> with SingleTickerProv
           );
         },
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: 1, // QuickView is active
-        backgroundColor: const Color(0xFF161618),
-        selectedItemColor: Colors.blueAccent,
-        unselectedItemColor: Colors.grey.shade500,
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.grid_view_rounded), activeIcon: Icon(Icons.grid_view_rounded), label: 'QuickView'),
-          BottomNavigationBarItem(icon: Icon(Icons.list_alt), label: 'Review'),
-          BottomNavigationBarItem(icon: Icon(Icons.insights_outlined), label: 'Insights'),
-          BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), label: 'Settings'),
-        ],
-        onTap: (index) {
-          switch (index) {
-            case 0:
-              context.go('/');
-              break;
-            case 1:
-              // Already on QuickView
-              break;
-            case 2:
-              context.push('/suggestions');
-              break;
-            case 3:
-              context.push('/insights');
-              break;
-            case 4:
-              context.push('/settings');
-              break;
-          }
-        },
-      ),
     );
   }
 

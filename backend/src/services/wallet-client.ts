@@ -65,10 +65,33 @@ export interface BatchResult {
   }[];
 }
 
+export interface RecordAggregationParams {
+  groupBy?: string[];
+  compute?: string[];
+  sortBy?: string[];
+  recordDate?: string[];
+  recordType?: 'expense' | 'income';
+  isTransfer?: boolean;
+  accountId?: string | string[];
+  categoryId?: string | string[];
+  categoryGroup?: string;
+  counterParty?: string;
+  limit?: number;
+  offset?: number;
+}
+
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
 export class WalletClient {
   private client: AxiosInstance;
+  private token: string;
+  private static cache = new Map<string, CacheEntry<any>>();
 
   constructor(token: string) {
+    this.token = token;
     this.client = axios.create({
       baseURL: `${env.WALLET_API_BASE_URL}/v1/api`,
       headers: {
@@ -82,8 +105,33 @@ export class WalletClient {
     });
   }
 
+  private getCacheKey(suffix: string): string {
+    return `${this.token.slice(-10)}_${suffix}`;
+  }
+
+  private getCached<T>(key: string): T | null {
+    const entry = WalletClient.cache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      WalletClient.cache.delete(key);
+      return null;
+    }
+    return entry.data as T;
+  }
+
+  private setCached<T>(key: string, data: T, ttlSeconds: number): void {
+    WalletClient.cache.set(key, {
+      data,
+      expiresAt: Date.now() + ttlSeconds * 1000,
+    });
+  }
+
+  public static clearCache(): void {
+    WalletClient.cache.clear();
+  }
+
   /**
-   * Healthcheck / Verification: fetch accounts or usage stats
+   * Healthcheck / Verification: fetch accounts or client profile
    */
   public async verifyConnection(): Promise<boolean> {
     try {
@@ -95,11 +143,27 @@ export class WalletClient {
   }
 
   /**
+   * Get client profile, sync state, and API rate limits
+   * Official BudgetBakers REST API endpoint: GET /v1/api/client/profile
+   */
+  public async getClientProfile(help?: string[]): Promise<any> {
+    const cacheKey = this.getCacheKey('client_profile');
+    const cached = this.getCached<any>(cacheKey);
+    if (cached) return cached;
+
+    const res = await this.client.get('/client/profile', {
+      params: help && help.length > 0 ? { help: help.join(',') } : undefined,
+    });
+    const data = res.data;
+    this.setCached(cacheKey, data, 30); // 30s cache
+    return data;
+  }
+
+  /**
    * List user's accounts (single page)
    */
   public async getAccounts(params?: { limit?: number; offset?: number; archived?: boolean }): Promise<any[]> {
     const res = await this.client.get('/accounts', { params });
-    // In OpenAPI v2.0, accounts are returned directly or under an envelope
     return Array.isArray(res.data) ? res.data : (res.data.accounts || res.data.results || []);
   }
 
@@ -107,6 +171,10 @@ export class WalletClient {
    * Fetch all user's accounts across all pages from BudgetBakers Wallet
    */
   public async getAllAccounts(options?: { archived?: boolean }): Promise<any[]> {
+    const cacheKey = this.getCacheKey(`all_accounts_${options?.archived ?? 'all'}`);
+    const cached = this.getCached<any[]>(cacheKey);
+    if (cached) return cached;
+
     const allAccounts: any[] = [];
     const limit = 20; // BudgetBakers Wallet API max account limit per request
     let offset = 0;
@@ -140,6 +208,7 @@ export class WalletClient {
       }
     }
 
+    this.setCached(cacheKey, allAccounts, 60); // 60s cache
     return allAccounts;
   }
 
@@ -147,8 +216,16 @@ export class WalletClient {
    * List all categories (base categories + custom subcategories)
    */
   public async getCategories(params?: { limit?: number; offset?: number }): Promise<any[]> {
+    const cacheKey = this.getCacheKey('categories');
+    const cached = this.getCached<any[]>(cacheKey);
+    if (cached && !params?.offset) return cached;
+
     const res = await this.client.get('/categories', { params: { limit: 200, ...params } });
-    return Array.isArray(res.data) ? res.data : (res.data.categories || res.data.results || []);
+    const list = Array.isArray(res.data) ? res.data : (res.data.categories || res.data.results || []);
+    if (!params?.offset) {
+      this.setCached(cacheKey, list, 600); // 10 min cache for categories
+    }
+    return list;
   }
 
   /**
@@ -163,8 +240,35 @@ export class WalletClient {
    * List all budgets
    */
   public async getBudgets(params?: { limit?: number; offset?: number }): Promise<any[]> {
+    const cacheKey = this.getCacheKey('budgets');
+    const cached = this.getCached<any[]>(cacheKey);
+    if (cached) return cached;
+
     const res = await this.client.get('/budgets', { params });
-    return Array.isArray(res.data) ? res.data : (res.data.budgets || res.data.results || []);
+    const list = Array.isArray(res.data) ? res.data : (res.data.budgets || res.data.results || []);
+    this.setCached(cacheKey, list, 60); // 60s cache
+    return list;
+  }
+
+  /**
+   * Native server-side Records Aggregation
+   * Official BudgetBakers REST API endpoint: GET /v1/api/records/aggregation
+   * Group and compute amounts directly on BudgetBakers server without fetching raw records
+   */
+  public async getRecordsAggregation(params: RecordAggregationParams): Promise<any> {
+    const cleanParams: any = {};
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== null) {
+        if (Array.isArray(value)) {
+          cleanParams[key] = value;
+        } else {
+          cleanParams[key] = value;
+        }
+      }
+    }
+
+    const res = await this.client.get('/records/aggregation', { params: cleanParams });
+    return res.data;
   }
 
   /**
@@ -192,6 +296,9 @@ export class WalletClient {
    * Official BudgetBakers REST API endpoint: POST /v1/api/records
    */
   public async createRecords(records: CreateRecordRequest[]): Promise<BatchResult> {
+    // Invalidate caches when records are written
+    WalletClient.cache.clear();
+
     // Standardize amount format to { value: number } as required by OpenAPI
     const formattedRecords = records.map(r => {
       const formatted: any = {
@@ -215,6 +322,7 @@ export class WalletClient {
    * Official BudgetBakers REST API endpoint: PATCH /v1/api/records
    */
   public async patchRecords(records: any[]): Promise<BatchResult> {
+    WalletClient.cache.clear();
     const res = await this.client.patch('/records', records);
     return res.data;
   }
@@ -224,6 +332,7 @@ export class WalletClient {
    * Official BudgetBakers REST API endpoint: DELETE /v1/api/records
    */
   public async deleteRecords(ids: string[]): Promise<any> {
+    WalletClient.cache.clear();
     const res = await this.client.delete('/records', { data: { ids } });
     return res.data;
   }

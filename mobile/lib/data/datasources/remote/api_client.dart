@@ -1,8 +1,17 @@
 import 'package:dio/dio.dart';
 import '../../../core/constants/api_constants.dart';
 
+class _CacheItem {
+  final dynamic data;
+  final DateTime expiresAt;
+
+  _CacheItem(this.data, this.expiresAt);
+  bool get isExpired => DateTime.now().isAfter(expiresAt);
+}
+
 class ApiClient {
   final Dio _dio;
+  static final Map<String, _CacheItem> _cache = {};
 
   ApiClient({String? baseUrl, String? apiKey})
       : _dio = Dio(
@@ -18,11 +27,31 @@ class ApiClient {
         ) {
     _dio.interceptors.add(
       LogInterceptor(
-        requestBody: true,
-        responseBody: true,
+        requestBody: false,
+        responseBody: false,
         error: true,
       ),
     );
+  }
+
+  /// In-memory cache helper
+  T? _getFromCache<T>(String key) {
+    final item = _cache[key];
+    if (item == null) return null;
+    if (item.isExpired) {
+      _cache.remove(key);
+      return null;
+    }
+    return item.data as T;
+  }
+
+  void _saveToCache(String key, dynamic data, {Duration ttl = const Duration(seconds: 60)}) {
+    _cache[key] = _CacheItem(data, DateTime.now().add(ttl));
+  }
+
+  /// Explicitly clear cached API responses (e.g. on pull-to-refresh)
+  void clearCache() {
+    _cache.clear();
   }
 
   // ----------------------------------------------------
@@ -30,9 +59,17 @@ class ApiClient {
   // ----------------------------------------------------
 
   /// Fetch user profile and preferences (syncStartDate, lastReviewedDate, etc.)
-  Future<Map<String, dynamic>> getUserProfile() async {
+  Future<Map<String, dynamic>> getUserProfile({bool forceRefresh = false}) async {
+    const key = 'user_profile';
+    if (!forceRefresh) {
+      final cached = _getFromCache<Map<String, dynamic>>(key);
+      if (cached != null) return cached;
+    }
+
     final res = await _dio.get('/api/auth/profile');
-    return res.data as Map<String, dynamic>;
+    final data = res.data as Map<String, dynamic>;
+    _saveToCache(key, data, ttl: const Duration(seconds: 45));
+    return data;
   }
 
   /// Update user preferences including sliding window cutoff date
@@ -41,6 +78,7 @@ class ApiClient {
     DateTime? lastReviewedDate,
     bool? autoAdvanceWindow,
   }) async {
+    _cache.remove('user_profile');
     final res = await _dio.patch(
       '/api/auth/preferences',
       data: {
@@ -77,6 +115,7 @@ class ApiClient {
 
   /// Submit new suggestion (parsed or raw text)
   Future<Map<String, dynamic>> createSuggestion(Map<String, dynamic> data) async {
+    _cache.remove('user_profile');
     final res = await _dio.post('/api/suggestions', data: data);
     return res.data as Map<String, dynamic>;
   }
@@ -92,6 +131,7 @@ class ApiClient {
     bool? isTransfer,
     String? transferToAccountId,
   }) async {
+    clearCache();
     final res = await _dio.patch(
       '/api/suggestions/$id/approve',
       data: {
@@ -109,6 +149,7 @@ class ApiClient {
 
   /// Reject a suggestion
   Future<Map<String, dynamic>> rejectSuggestion(String id) async {
+    clearCache();
     final res = await _dio.patch('/api/suggestions/$id/reject');
     return res.data as Map<String, dynamic>;
   }
@@ -120,6 +161,7 @@ class ApiClient {
     String? walletAccountId,
     String? walletCategoryId,
   }) async {
+    clearCache();
     final res = await _dio.post(
       '/api/suggestions/batch',
       data: {
@@ -138,6 +180,7 @@ class ApiClient {
 
   /// Connect Wallet with API Token
   Future<Map<String, dynamic>> connectWallet(String token) async {
+    clearCache();
     final res = await _dio.post(
       '/api/wallet/connect',
       data: {'token': token},
@@ -145,31 +188,63 @@ class ApiClient {
     return res.data as Map<String, dynamic>;
   }
 
+  /// Fetch Wallet connection status, sync state, and rate limits
+  Future<Map<String, dynamic>> getWalletProfile({bool forceRefresh = false}) async {
+    const key = 'wallet_profile';
+    if (!forceRefresh) {
+      final cached = _getFromCache<Map<String, dynamic>>(key);
+      if (cached != null) return cached;
+    }
+
+    final res = await _dio.get('/api/wallet/profile');
+    final data = res.data as Map<String, dynamic>;
+    _saveToCache(key, data, ttl: const Duration(seconds: 30));
+    return data;
+  }
+
   /// Fetch accounts mapped to user (filters out archived accounts by default)
-  Future<List<dynamic>> getWalletAccounts({bool includeArchived = false}) async {
+  Future<List<dynamic>> getWalletAccounts({bool includeArchived = false, bool forceRefresh = false}) async {
+    final key = 'wallet_accounts_${includeArchived ? 'all' : 'active'}';
+    if (!forceRefresh) {
+      final cached = _getFromCache<List<dynamic>>(key);
+      if (cached != null) return cached;
+    }
+
     final res = await _dio.get(
       '/api/wallet/accounts',
       queryParameters: {
         if (includeArchived) 'includeArchived': 'true',
       },
     );
-    return res.data as List<dynamic>;
+    final data = res.data as List<dynamic>;
+    _saveToCache(key, data, ttl: const Duration(seconds: 60));
+    return data;
   }
 
   /// Fetch cached categories from Wallet
-  Future<List<dynamic>> getWalletCategories() async {
+  Future<List<dynamic>> getWalletCategories({bool forceRefresh = false}) async {
+    const key = 'wallet_categories';
+    if (!forceRefresh) {
+      final cached = _getFromCache<List<dynamic>>(key);
+      if (cached != null) return cached;
+    }
+
     final res = await _dio.get('/api/wallet/categories');
-    return res.data as List<dynamic>;
+    final data = res.data as List<dynamic>;
+    _saveToCache(key, data, ttl: const Duration(minutes: 5));
+    return data;
   }
 
   /// Trigger full sync from BudgetBakers Wallet
   Future<Map<String, dynamic>> syncWallet() async {
+    clearCache();
     final res = await _dio.post('/api/wallet/sync');
     return res.data as Map<String, dynamic>;
   }
 
   /// Map bank account last 4 digits to Wallet account
   Future<Map<String, dynamic>> mapAccountLast4(String id, String last4Digits) async {
+    clearCache();
     final res = await _dio.patch(
       '/api/wallet/accounts/$id/map-last4',
       data: {'last4Digits': last4Digits},
@@ -178,18 +253,33 @@ class ApiClient {
   }
 
   /// Fetch live quickview data (accounts with balances & colors, summary, budgets, recent records)
-  Future<Map<String, dynamic>> getQuickView() async {
+  Future<Map<String, dynamic>> getQuickView({bool forceRefresh = false}) async {
+    const key = 'wallet_quickview';
+    if (!forceRefresh) {
+      final cached = _getFromCache<Map<String, dynamic>>(key);
+      if (cached != null) return cached;
+    }
+
     final res = await _dio.get('/api/wallet/quickview');
-    return res.data as Map<String, dynamic>;
+    final data = res.data as Map<String, dynamic>;
+    _saveToCache(key, data, ttl: const Duration(seconds: 30));
+    return data;
   }
 
-  /// Fetch records directly from Wallet
-  Future<List<dynamic>> getWalletRecords({int limit = 20, String? accountId}) async {
+  /// Fetch records directly from Wallet with filtering and search
+  Future<List<dynamic>> getWalletRecords({
+    int limit = 20,
+    String? accountId,
+    String? recordType,
+    String? counterParty,
+  }) async {
     final res = await _dio.get(
       '/api/wallet/records',
       queryParameters: {
         'limit': limit,
         if (accountId != null) 'accountId': accountId,
+        if (recordType != null) 'recordType': recordType,
+        if (counterParty != null) 'counterParty': counterParty,
       },
     );
     return res.data as List<dynamic>;
@@ -197,6 +287,7 @@ class ApiClient {
 
   /// Save custom account display order
   Future<Map<String, dynamic>> saveAccountOrder(List<String> accountOrder) async {
+    clearCache();
     final res = await _dio.patch(
       '/api/wallet/accounts/reorder',
       data: {'accountOrder': accountOrder},
@@ -205,68 +296,82 @@ class ApiClient {
   }
 
   // ----------------------------------------------------
-  // Portfolio Endpoints
-  // ----------------------------------------------------
-
-  /// List all portfolio holdings
-  Future<List<dynamic>> getPortfolio({String? type}) async {
-    final res = await _dio.get(
-      '/api/portfolio',
-      queryParameters: {
-        if (type != null) 'type': type,
-      },
-    );
-    return res.data as List<dynamic>;
-  }
-
-  /// Portfolio summary (totals, gains, breakdown)
-  Future<Map<String, dynamic>> getPortfolioSummary() async {
-    final res = await _dio.get('/api/portfolio/summary');
-    return res.data as Map<String, dynamic>;
-  }
-
-  /// Add holding manually
-  Future<Map<String, dynamic>> addHolding(Map<String, dynamic> data) async {
-    final res = await _dio.post('/api/portfolio/holdings', data: data);
-    return res.data as Map<String, dynamic>;
-  }
-
-  /// Update holding
-  Future<Map<String, dynamic>> updateHolding(String id, Map<String, dynamic> data) async {
-    final res = await _dio.patch('/api/portfolio/holdings/$id', data: data);
-    return res.data as Map<String, dynamic>;
-  }
-
-  /// Delete holding
-  Future<void> deleteHolding(String id) async {
-    await _dio.delete('/api/portfolio/holdings/$id');
-  }
-
-  /// Refresh portfolio NAVs and generate value suggestions
-  Future<Map<String, dynamic>> refreshPortfolio() async {
-    final res = await _dio.post('/api/portfolio/refresh');
-    return res.data as Map<String, dynamic>;
-  }
-
-  // ----------------------------------------------------
   // Insights Endpoints
   // ----------------------------------------------------
 
-  /// Monthly breakdown
-  Future<Map<String, dynamic>> getInsightsMonthly() async {
-    final res = await _dio.get('/api/insights/monthly');
-    return res.data as Map<String, dynamic>;
+  /// Monthly breakdown powered by Wallet records aggregation
+  Future<Map<String, dynamic>> getInsightsMonthly({int? year, int? month, bool forceRefresh = false}) async {
+    final key = 'insights_monthly_${year ?? 'curr'}_${month ?? 'curr'}';
+    if (!forceRefresh) {
+      final cached = _getFromCache<Map<String, dynamic>>(key);
+      if (cached != null) return cached;
+    }
+
+    final res = await _dio.get(
+      '/api/insights/monthly',
+      queryParameters: {
+        if (year != null) 'year': year,
+        if (month != null) 'month': month,
+      },
+    );
+    final data = res.data as Map<String, dynamic>;
+    _saveToCache(key, data, ttl: const Duration(seconds: 45));
+    return data;
   }
 
   /// Budget progress from Wallet
-  Future<Map<String, dynamic>> getInsightsBudgets() async {
+  Future<Map<String, dynamic>> getInsightsBudgets({bool forceRefresh = false}) async {
+    const key = 'insights_budgets';
+    if (!forceRefresh) {
+      final cached = _getFromCache<Map<String, dynamic>>(key);
+      if (cached != null) return cached;
+    }
+
     final res = await _dio.get('/api/insights/budgets');
-    return res.data as Map<String, dynamic>;
+    final data = res.data as Map<String, dynamic>;
+    _saveToCache(key, data, ttl: const Duration(seconds: 45));
+    return data;
+  }
+
+  /// Discretionary vs Essential ("Must" vs "Want" vs "Need") spending
+  Future<Map<String, dynamic>> getInsightsCardinality({bool forceRefresh = false}) async {
+    const key = 'insights_cardinality';
+    if (!forceRefresh) {
+      final cached = _getFromCache<Map<String, dynamic>>(key);
+      if (cached != null) return cached;
+    }
+
+    final res = await _dio.get('/api/insights/cardinality');
+    final data = res.data as Map<String, dynamic>;
+    _saveToCache(key, data, ttl: const Duration(seconds: 60));
+    return data;
+  }
+
+  /// Top spending merchants / payees
+  Future<Map<String, dynamic>> getInsightsMerchants({bool forceRefresh = false}) async {
+    const key = 'insights_merchants';
+    if (!forceRefresh) {
+      final cached = _getFromCache<Map<String, dynamic>>(key);
+      if (cached != null) return cached;
+    }
+
+    final res = await _dio.get('/api/insights/merchants');
+    final data = res.data as Map<String, dynamic>;
+    _saveToCache(key, data, ttl: const Duration(seconds: 60));
+    return data;
   }
 
   /// Multi-month trends
-  Future<Map<String, dynamic>> getInsightsTrends() async {
+  Future<Map<String, dynamic>> getInsightsTrends({bool forceRefresh = false}) async {
+    const key = 'insights_trends';
+    if (!forceRefresh) {
+      final cached = _getFromCache<Map<String, dynamic>>(key);
+      if (cached != null) return cached;
+    }
+
     final res = await _dio.get('/api/insights/trends');
-    return res.data as Map<String, dynamic>;
+    final data = res.data as Map<String, dynamic>;
+    _saveToCache(key, data, ttl: const Duration(minutes: 2));
+    return data;
   }
 }
