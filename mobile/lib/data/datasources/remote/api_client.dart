@@ -195,6 +195,15 @@ class ApiClient {
     return res.data as List<dynamic>;
   }
 
+  /// Save custom account display order
+  Future<Map<String, dynamic>> saveAccountOrder(List<String> accountOrder) async {
+    final res = await _dio.patch(
+      '/api/wallet/accounts/reorder',
+      data: {'accountOrder': accountOrder},
+    );
+    return res.data as Map<String, dynamic>;
+  }
+
   // ----------------------------------------------------
   // Portfolio Endpoints
   // ----------------------------------------------------

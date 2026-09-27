@@ -5,6 +5,36 @@ import { WalletClient } from '../services/wallet-client';
 
 const router = Router();
 
+// Default account display order matching the BudgetBakers Wallet home app
+const DEFAULT_APP_ACCOUNT_ORDER = [
+  'HDFC sb',
+  'SBI sb',
+  'Cash',
+  'Mutual funds',
+  'Zerodha',
+  'NPS',
+  'Upstox',
+  'EPF',
+  'Amazon Pay',
+  'Flipkart GC',
+  'SBI cashback',
+  'Tata Neu',
+  'HSBC Live+',
+  'Axis Flipkart',
+  'Swiggy HDFC',
+  'Jupiter Edge',
+  'Cred indusind',
+  'Amazon ICICI',
+  'Ola SBI',
+  'IDFC wealth',
+  'Axis Rewards',
+  'PhonePe',
+  'Fastag',
+  'Axis forex',
+  'LIC',
+  'ICICI platinum',
+];
+
 // POST /api/wallet/connect - Store Wallet API token
 router.post('/connect', authenticate, async (req: Request, res: Response) => {
   const userId = req.user.id;
@@ -130,10 +160,6 @@ router.get('/quickview', authenticate, async (req: Request, res: Response) => {
             isInvestmentAccount: a.isInvestmentAccount || false,
             recordCount: a.recordStats?.recordCount ?? 0,
             archived: a.archived || false,
-            rawKeys: Object.keys(a),
-            position: (a as any).position,
-            order: (a as any).order,
-            sortOrder: (a as any).sortOrder,
           };
         });
     } else {
@@ -154,6 +180,32 @@ router.get('/quickview', authenticate, async (req: Request, res: Response) => {
           archived: false,
         }));
     }
+
+    // Sort accounts according to user preferences or default app layout (matching BudgetBakers app)
+    const prefs = (user?.preferences as Record<string, any>) || {};
+    const preferredOrder: string[] = Array.isArray(prefs.accountOrder) && prefs.accountOrder.length > 0
+      ? prefs.accountOrder
+      : DEFAULT_APP_ACCOUNT_ORDER;
+
+    const getOrderIndex = (acc: any) => {
+      const idIdx = preferredOrder.indexOf(acc.id) !== -1
+        ? preferredOrder.indexOf(acc.id)
+        : preferredOrder.indexOf(acc.walletAccountId);
+      if (idIdx !== -1) return idIdx;
+
+      const nameLower = (acc.name || '').trim().toLowerCase();
+      const nameIdx = preferredOrder.findIndex(p => p.trim().toLowerCase() === nameLower);
+      if (nameIdx !== -1) return nameIdx;
+
+      return 999;
+    };
+
+    accountsList.sort((a, b) => {
+      const idxA = getOrderIndex(a);
+      const idxB = getOrderIndex(b);
+      if (idxA !== idxB) return idxA - idxB;
+      return a.name.localeCompare(b.name);
+    });
 
     let totalAssets = 0;
     let totalLiabilities = 0;
@@ -182,6 +234,31 @@ router.get('/quickview', authenticate, async (req: Request, res: Response) => {
     console.error('Quickview error:', err.message);
     res.status(500).json({ error: 'Failed to load quickview data', details: err.message });
   }
+});
+
+// PATCH /api/wallet/accounts/reorder - Save custom account display order
+router.patch('/accounts/reorder', authenticate, async (req: Request, res: Response) => {
+  const userId = req.user.id;
+  const { accountOrder } = req.body;
+
+  if (!Array.isArray(accountOrder)) {
+    return res.status(400).json({ error: 'accountOrder array is required' });
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const prefs = (user?.preferences as Record<string, any>) || {};
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      preferences: {
+        ...prefs,
+        accountOrder,
+      },
+    },
+  });
+
+  res.json({ message: 'Account order updated successfully', accountOrder });
 });
 
 // GET /api/wallet/records - Get records from BudgetBakers Wallet

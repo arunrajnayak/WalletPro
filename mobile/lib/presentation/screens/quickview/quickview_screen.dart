@@ -42,6 +42,48 @@ class _QuickViewScreenState extends State<QuickViewScreen> with SingleTickerProv
     super.dispose();
   }
 
+  static const List<String> _defaultAccountOrder = [
+    'HDFC sb',
+    'SBI sb',
+    'Cash',
+    'Mutual funds',
+    'Zerodha',
+    'NPS',
+    'Upstox',
+    'EPF',
+    'Amazon Pay',
+    'Flipkart GC',
+    'SBI cashback',
+    'Tata Neu',
+    'HSBC Live+',
+    'Axis Flipkart',
+    'Swiggy HDFC',
+    'Jupiter Edge',
+    'Cred indusind',
+    'Amazon ICICI',
+    'Ola SBI',
+    'IDFC wealth',
+    'Axis Rewards',
+    'PhonePe',
+    'Fastag',
+    'Axis forex',
+    'LIC',
+    'ICICI platinum',
+  ];
+
+  void _sortAccountsList(List<dynamic> accounts) {
+    accounts.sort((a, b) {
+      final nameA = (a['name'] ?? '').toString().trim().toLowerCase();
+      final nameB = (b['name'] ?? '').toString().trim().toLowerCase();
+      final idxA = _defaultAccountOrder.indexWhere((n) => n.trim().toLowerCase() == nameA);
+      final idxB = _defaultAccountOrder.indexWhere((n) => n.trim().toLowerCase() == nameB);
+      if (idxA != -1 && idxB != -1) return idxA - idxB;
+      if (idxA != -1) return -1;
+      if (idxB != -1) return 1;
+      return nameA.compareTo(nameB);
+    });
+  }
+
   Future<void> _loadQuickViewData({bool showRefreshing = false}) async {
     if (showRefreshing) {
       setState(() => _isRefreshing = true);
@@ -52,8 +94,11 @@ class _QuickViewScreenState extends State<QuickViewScreen> with SingleTickerProv
     try {
       final data = await _api.getQuickView();
       if (mounted) {
+        final accounts = (data['accounts'] as List<dynamic>?) ?? [];
+        _sortAccountsList(accounts);
+
         setState(() {
-          _accounts = (data['accounts'] as List<dynamic>?) ?? [];
+          _accounts = accounts;
           _budgets = (data['budgets'] as List<dynamic>?) ?? [];
           _recentRecords = (data['recentRecords'] as List<dynamic>?) ?? [];
           _summary = (data['summary'] as Map<String, dynamic>?) ?? _summary;
@@ -164,6 +209,138 @@ class _QuickViewScreenState extends State<QuickViewScreen> with SingleTickerProv
       return Icons.savings_outlined;
     }
     return Icons.account_balance_outlined;
+  }
+
+  void _showReorderAccountsModal() {
+    final reorderList = List<dynamic>.from(_accounts);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1E1E22),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.8,
+              padding: const EdgeInsets.only(top: 12),
+              child: Column(
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade600,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Reorder Accounts',
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Drag handle on right to reorder',
+                              style: TextStyle(fontSize: 12, color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                        TextButton(
+                          onPressed: () async {
+                            Navigator.pop(ctx);
+                            setState(() {
+                              _accounts = reorderList;
+                            });
+                            try {
+                              final orderIds = reorderList
+                                  .map((a) => (a['walletAccountId'] ?? a['id']).toString())
+                                  .toList();
+                              await _api.saveAccountOrder(orderIds);
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Account order saved!'), backgroundColor: Colors.green),
+                                );
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Failed to save order: $e'), backgroundColor: Colors.red),
+                                );
+                              }
+                            }
+                          },
+                          child: const Text('Done', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(color: Colors.white12),
+                  Expanded(
+                    child: Theme(
+                      data: Theme.of(context).copyWith(
+                        canvasColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                      ),
+                      child: ReorderableListView.builder(
+                        itemCount: reorderList.length,
+                        onReorder: (oldIndex, newIndex) {
+                          setModalState(() {
+                            if (oldIndex < newIndex) {
+                              newIndex -= 1;
+                            }
+                            final item = reorderList.removeAt(oldIndex);
+                            reorderList.insert(newIndex, item);
+                          });
+                        },
+                        itemBuilder: (context, index) {
+                          final a = reorderList[index];
+                          final name = a['name'] ?? 'Account';
+                          final balance = (a['balance'] is num) ? (a['balance'] as num).toDouble() : 0.0;
+                          final color = _parseAccountColor(a['color'], name, index);
+
+                          return ListTile(
+                            key: ValueKey(a['walletAccountId'] ?? a['id'] ?? index),
+                            leading: CircleAvatar(
+                              radius: 12,
+                              backgroundColor: color,
+                            ),
+                            title: Text(
+                              name,
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                            ),
+                            subtitle: Text(
+                              CurrencyFormatter.formatINR(balance),
+                              style: TextStyle(
+                                color: balance < 0 ? Colors.red.shade300 : Colors.green.shade300,
+                                fontSize: 12,
+                              ),
+                            ),
+                            trailing: const Icon(Icons.drag_handle, color: Colors.white54),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   void _showAccountDetailsModal(Map<String, dynamic> account) {
@@ -701,7 +878,7 @@ class _QuickViewScreenState extends State<QuickViewScreen> with SingleTickerProv
       child: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         children: [
-          // Section Title: My Accounts in Wallet + '>' Button
+          // Section Title: My Accounts in Wallet + Reorder & '>' Buttons
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -714,25 +891,27 @@ class _QuickViewScreenState extends State<QuickViewScreen> with SingleTickerProv
                   letterSpacing: -0.2,
                 ),
               ),
-              InkWell(
-                onTap: () {
-                  // Show summary
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('${_accounts.length} active accounts linked with Wallet'),
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                },
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.08),
-                    shape: BoxShape.circle,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.swap_vert, color: Colors.white70, size: 20),
+                    tooltip: 'Reorder accounts',
+                    onPressed: _showReorderAccountsModal,
                   ),
-                  child: const Icon(Icons.chevron_right, color: Colors.white70, size: 20),
-                ),
+                  InkWell(
+                    onTap: _showReorderAccountsModal,
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.08),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.chevron_right, color: Colors.white70, size: 20),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
