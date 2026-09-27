@@ -334,10 +334,19 @@ router.patch('/accounts/:id/map-last4', authenticate, async (req: Request, res: 
     return res.status(404).json({ error: 'Account not found' });
   }
 
-  // Clean last4Digits: strip extra spaces/special chars, keep digits & commas for multi-card mappings
-  const cleanedDigits = typeof last4Digits === 'string'
-    ? last4Digits.replace(/[^0-9,\s]/g, '').trim() || null
-    : null;
+  // Clean last4Digits: support explicit NONE to mark accounts that don't need SMS/card mapping (e.g. Cash)
+  const isNone = typeof last4Digits === 'string' && (
+    last4Digits.trim().toUpperCase() === 'NONE' ||
+    last4Digits.trim().toUpperCase() === 'SKIP' ||
+    last4Digits.trim().toUpperCase() === 'N/A' ||
+    last4Digits.trim().toUpperCase() === 'DONT_MAP'
+  );
+
+  const cleanedDigits = isNone
+    ? 'NONE'
+    : (typeof last4Digits === 'string'
+        ? last4Digits.replace(/[^0-9,\s]/g, '').trim() || null
+        : null);
 
   const account = await prisma.walletAccount.update({
     where: { id },

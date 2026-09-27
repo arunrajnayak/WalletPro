@@ -297,6 +297,7 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
     final name = account['name'] ?? 'Account';
     final balance = (account['balance'] is num) ? (account['balance'] as num).toDouble() : 0.0;
     final last4 = account['last4Digits'];
+    final hasLast4 = last4 != null && last4 != 'NONE' && last4.toString().trim().isNotEmpty;
     final type = account['accountType'] ?? 'General';
     final isNegative = balance < 0;
 
@@ -345,7 +346,7 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Type: $type${last4 != null ? ' • Card Last 4: $last4' : ''}',
+                'Type: $type${hasLast4 ? ' • Card Last 4: $last4' : ''}',
                 style: TextStyle(fontSize: 13, color: Colors.grey.shade400),
               ),
               const Divider(color: Colors.white12, height: 28),

@@ -154,8 +154,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _showMapAccountDialog(Map<String, dynamic> account) async {
-    final controller = TextEditingController(text: account['last4Digits'] ?? '');
-    final confirmed = await showDialog<bool>(
+    final currentLast4 = account['last4Digits'];
+    final isCurrentlyNone = currentLast4 == 'NONE';
+    final controller = TextEditingController(
+      text: (currentLast4 == null || isCurrentlyNone) ? '' : currentLast4.toString(),
+    );
+
+    final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -165,7 +170,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Enter the last 4 digits of your card or bank account from transaction SMS alerts:',
+              'Enter the last 4 digits of your card/bank account from transaction SMS alerts, or select "Don\'t Map" for cash or offline accounts:',
               style: TextStyle(fontSize: 13),
             ),
             const SizedBox(height: 14),
@@ -174,28 +179,79 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               keyboardType: TextInputType.text,
               maxLength: 10,
               decoration: InputDecoration(
-                labelText: 'Last 4 Digits (e.g. 1234 or 08f7)',
+                labelText: 'Last 4 Digits (e.g. 1234)',
+                hintText: isCurrentlyNone ? 'Currently set to Don\'t Map' : null,
                 filled: true,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
+            if (isCurrentlyNone) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Icon(Icons.check_circle_outline, size: 15, color: Theme.of(ctx).colorScheme.primary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Currently marked as Don\'t Map (Cash / Offline)',
+                      style: TextStyle(fontSize: 12, color: Theme.of(ctx).colorScheme.primary, fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save Mapping')),
+          Row(
+            children: [
+              OutlinedButton.icon(
+                icon: const Icon(Icons.do_not_disturb_on_outlined, size: 16),
+                label: const Text("Don't Map"),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Theme.of(ctx).colorScheme.error,
+                  side: BorderSide(color: Theme.of(ctx).colorScheme.error.withOpacity(0.5)),
+                ),
+                onPressed: () => Navigator.pop(ctx, 'DONT_MAP'),
+              ),
+              const Spacer(),
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              const SizedBox(width: 4),
+              FilledButton(onPressed: () => Navigator.pop(ctx, 'SAVE'), child: const Text('Save')),
+            ],
+          ),
         ],
       ),
     );
 
-    if (confirmed == true) {
-      final digits = controller.text.trim();
+    if (result == 'DONT_MAP') {
       try {
-        await _api.mapAccountLast4(account['id'], digits);
+        await _api.mapAccountLast4(account['id'], 'NONE');
         await _loadSettings();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Mapped ${account['name']} to •••• $digits')),
+            SnackBar(content: Text('Marked "${account['name']}" as Don\'t Map')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to update account: $e')),
+          );
+        }
+      }
+    } else if (result == 'SAVE') {
+      final digits = controller.text.trim();
+      try {
+        await _api.mapAccountLast4(account['id'], digits.isEmpty ? null : digits);
+        await _loadSettings();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(digits.isEmpty
+                  ? 'Reset mapping for ${account['name']}'
+                  : 'Mapped ${account['name']} to •••• $digits'),
+            ),
           );
         }
       } catch (e) {
@@ -505,6 +561,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ...filteredAccounts.map((acc) {
                         final last4 = acc['last4Digits'];
                         final type = acc['accountType'] ?? 'General';
+                        final isNone = last4 == 'NONE';
+                        final isMapped = last4 != null && !isNone && last4.toString().trim().isNotEmpty;
 
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
@@ -513,19 +571,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           trailing: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
-                              color: last4 != null ? Colors.green.shade50 : Colors.orange.shade50,
+                              color: isNone
+                                  ? (isDark ? Colors.white10 : Colors.grey.shade100)
+                                  : (isMapped ? Colors.green.shade50 : Colors.orange.shade50),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
-                                color: last4 != null ? Colors.green.shade200 : Colors.orange.shade200,
+                                color: isNone
+                                    ? (isDark ? Colors.white24 : Colors.grey.shade300)
+                                    : (isMapped ? Colors.green.shade200 : Colors.orange.shade200),
                               ),
                             ),
-                            child: Text(
-                              last4 != null ? '•••• $last4' : 'Tap to Map',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: last4 != null ? Colors.green.shade800 : Colors.orange.shade800,
-                              ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (isNone) ...[
+                                  Icon(Icons.block, size: 12, color: isDark ? Colors.white70 : Colors.grey.shade700),
+                                  const SizedBox(width: 4),
+                                ],
+                                Text(
+                                  isNone
+                                      ? "Don't Map"
+                                      : (isMapped ? '•••• $last4' : 'Tap to Map'),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: isNone
+                                        ? (isDark ? Colors.white70 : Colors.grey.shade700)
+                                        : (isMapped ? Colors.green.shade800 : Colors.orange.shade800),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                           onTap: () => _showMapAccountDialog(acc),

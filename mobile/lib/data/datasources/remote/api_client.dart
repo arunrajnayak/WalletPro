@@ -302,8 +302,8 @@ class ApiClient {
     return res.data as Map<String, dynamic>;
   }
 
-  /// Map bank account last 4 digits to Wallet account
-  Future<Map<String, dynamic>> mapAccountLast4(String id, String last4Digits) async {
+  /// Map bank account last 4 digits to Wallet account (pass 'NONE' to mark as Don't Map)
+  Future<Map<String, dynamic>> mapAccountLast4(String id, String? last4Digits) async {
     clearCache();
     final res = await _dio.patch(
       '/api/wallet/accounts/$id/map-last4',

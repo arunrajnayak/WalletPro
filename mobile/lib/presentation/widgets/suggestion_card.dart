@@ -60,9 +60,12 @@ class _SuggestionCardState extends State<SuggestionCard> {
 
     // If account not mapped, try matching by last 4 digits
     final last4 = widget.suggestion['accountLast4']?.toString().trim();
-    if (_selectedAccountId == null && last4 != null && last4.isNotEmpty) {
+    if (_selectedAccountId == null && last4 != null && last4.isNotEmpty && last4 != 'NONE') {
       final match = widget.accounts.firstWhere(
-        (acc) => acc['last4Digits']?.toString().trim() == last4,
+        (acc) {
+          final accLast4 = acc['last4Digits']?.toString().trim();
+          return accLast4 != null && accLast4.isNotEmpty && accLast4 != 'NONE' && accLast4 == last4;
+        },
         orElse: () => null,
       );
       if (match != null) {
@@ -136,7 +139,8 @@ class _SuggestionCardState extends State<SuggestionCard> {
               if (searchQuery.isEmpty) return true;
               final q = searchQuery.toLowerCase();
               final name = (a['name'] ?? '').toString().toLowerCase();
-              final last4 = (a['last4Digits'] ?? '').toString().toLowerCase();
+              final rawLast4 = (a['last4Digits'] ?? '').toString();
+              final last4 = (rawLast4 != 'NONE') ? rawLast4.toLowerCase() : '';
               final type = (a['accountType'] ?? '').toString().toLowerCase();
               return name.contains(q) || last4.contains(q) || type.contains(q);
             }).toList();
@@ -269,15 +273,24 @@ class _SuggestionCardState extends State<SuggestionCard> {
                                       fontSize: 15,
                                     ),
                                   ),
-                                  subtitle: Text(
-                                    a['last4Digits'] != null
-                                        ? 'Mapped: •••• ${a['last4Digits']} • $type'
-                                        : type,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: a['last4Digits'] != null ? FontWeight.w600 : FontWeight.normal,
-                                      color: a['last4Digits'] != null ? Colors.green.shade700 : null,
-                                    ),
+                                  subtitle: Builder(
+                                    builder: (context) {
+                                      final accLast4 = a['last4Digits'];
+                                      final isNone = accLast4 == 'NONE';
+                                      final isMapped = accLast4 != null && !isNone && accLast4.toString().trim().isNotEmpty;
+                                      return Text(
+                                        isMapped
+                                            ? 'Mapped: •••• $accLast4 • $type'
+                                            : (isNone ? '$type • (Don\'t Map)' : type),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: isMapped ? FontWeight.w600 : FontWeight.normal,
+                                          color: isMapped
+                                              ? Colors.green.shade700
+                                              : (isNone ? Theme.of(context).colorScheme.outline : null),
+                                        ),
+                                      );
+                                    },
                                   ),
                                   trailing: isSel
                                       ? Icon(Icons.check_circle_rounded, color: Theme.of(context).colorScheme.primary, size: 22)
@@ -407,7 +420,8 @@ class _SuggestionCardState extends State<SuggestionCard> {
     final amountNum = double.tryParse(widget.suggestion['amount']?.toString() ?? '0') ?? 0.0;
     final counterParty = (widget.suggestion['counterParty'] ?? 'Unknown Merchant').toString();
     final rawText = (widget.suggestion['rawText'] ?? '').toString();
-    final last4 = widget.suggestion['accountLast4'];
+    final rawLast4 = widget.suggestion['accountLast4']?.toString().trim();
+    final last4 = (rawLast4 != null && rawLast4.isNotEmpty && rawLast4 != 'NONE') ? rawLast4 : null;
     final source = (widget.suggestion['source'] ?? 'SMS').toString().toUpperCase();
     final note = widget.suggestion['note']?.toString();
     final refNumber = widget.suggestion['referenceNumber']?.toString();
