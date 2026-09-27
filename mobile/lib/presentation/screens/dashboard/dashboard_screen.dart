@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/utils/date_formatter.dart';
+import '../../../data/datasources/local/sms_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
 import '../../widgets/suggestion_card.dart';
 
@@ -13,8 +14,10 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final ApiClient _api = ApiClient();
+  final SmsReaderService _smsReader = SmsReaderService();
 
   bool _isLoading = true;
+  bool _isScanning = false;
   int _pendingCount = 0;
   int _approvedCount = 0;
   DateTime? _lastReviewedDate;
@@ -152,6 +155,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> _scanSmsInbox() async {
+    setState(() => _isScanning = true);
+    final effectiveCutoff = _lastReviewedDate ?? _syncStartDate;
+    try {
+      final summary = await _smsReader.scanAndSyncInbox(
+        sinceDate: effectiveCutoff,
+        apiClient: _api,
+      );
+      await _loadDashboard();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              summary['created']! > 0
+                  ? 'Found ${summary['created']} new transactions (scanned ${summary['scanned']} SMS)!'
+                  : 'Scanned ${summary['scanned']} SMS • No new transactions found.',
+            ),
+            backgroundColor: Colors.green.shade700,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('SMS Scan failed: $e'), backgroundColor: Colors.red.shade700),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isScanning = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -227,6 +263,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 : 'Auto-advance is paused.',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              icon: _isScanning
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Icon(Icons.sms_outlined, size: 18),
+                              label: Text(_isScanning ? 'Scanning SMS Inbox...' : 'Scan SMS Inbox (From Cutoff)'),
+                              onPressed: _isScanning ? null : _scanSmsInbox,
                             ),
                           ),
                         ],

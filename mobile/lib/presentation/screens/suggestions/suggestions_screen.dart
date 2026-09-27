@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/utils/date_formatter.dart';
+import '../../../data/datasources/local/sms_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
 import '../../widgets/suggestion_card.dart';
 
@@ -13,9 +14,11 @@ class SuggestionsScreen extends StatefulWidget {
 
 class _SuggestionsScreenState extends State<SuggestionsScreen> with SingleTickerProviderStateMixin {
   final ApiClient _api = ApiClient();
+  final SmsReaderService _smsReader = SmsReaderService();
   late TabController _tabController;
 
   bool _isLoading = true;
+  bool _isScanning = false;
   String? _error;
 
   List<dynamic> _suggestions = [];
@@ -230,6 +233,42 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> with SingleTicker
     }
   }
 
+  Future<void> _scanSmsInbox() async {
+    setState(() => _isScanning = true);
+    final effectiveCutoff = _lastReviewedDate ?? _syncStartDate;
+    try {
+      final summary = await _smsReader.scanAndSyncInbox(
+        sinceDate: effectiveCutoff,
+        apiClient: _api,
+      );
+      await _loadData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              summary['created']! > 0
+                  ? 'Found ${summary['created']} new transactions (scanned ${summary['scanned']} SMS)!'
+                  : 'Scanned ${summary['scanned']} SMS • No new transactions found.',
+            ),
+            backgroundColor: Colors.green.shade700,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('SMS Scan failed: $e'),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isScanning = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -239,6 +278,22 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> with SingleTicker
       appBar: AppBar(
         title: const Text('Review Queue'),
         actions: [
+          _isScanning
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.sms_outlined),
+                  tooltip: 'Scan SMS Inbox',
+                  onPressed: _scanSmsInbox,
+                ),
           IconButton(
             icon: const Icon(Icons.settings),
             tooltip: 'Window & Wallet Settings',

@@ -41,12 +41,19 @@ jobs:
       - name: Scaffold Android Scaffolding & Install Dependencies
         working-directory: mobile
         run: |
+          # Backup custom MainActivity and AndroidManifest with SMS reading capabilities
+          mkdir -p /tmp/backup
+          cp -f android/app/src/main/kotlin/com/walletpro/walletpro/MainActivity.kt /tmp/backup/MainActivity.kt
+          cp -f android/app/src/main/AndroidManifest.xml /tmp/backup/AndroidManifest.xml
+
           # Cleanly generate Android project files matching Flutter runner version
           rm -rf android
           flutter create --org com.walletpro --project-name walletpro --platforms=android .
 
-          # Inject safe standard permissions into AndroidManifest.xml (NO high-risk SMS or notification listener permissions)
-          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' android/app/src/main/AndroidManifest.xml
+          # Restore custom MainActivity and AndroidManifest
+          mkdir -p android/app/src/main/kotlin/com/walletpro/walletpro
+          cp -f /tmp/backup/MainActivity.kt android/app/src/main/kotlin/com/walletpro/walletpro/MainActivity.kt
+          cp -f /tmp/backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
 
           chmod +x android/gradlew || true
           flutter pub get
@@ -72,39 +79,39 @@ jobs:
       - name: Stage APK
         run: |
           mkdir -p releases
-          cp mobile/build/app/outputs/flutter-apk/app-release.apk releases/walletpro-v1.0.1.apk
+          cp mobile/build/app/outputs/flutter-apk/app-release.apk releases/walletpro-v1.0.2.apk
           ls -lh releases/
 
       - name: Upload APK as Workflow Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: walletpro-v1.0.1-apk
-          path: releases/walletpro-v1.0.1.apk
+          name: walletpro-v1.0.2-apk
+          path: releases/walletpro-v1.0.2.apk
           retention-days: 30
 
       - name: Create or Update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v1.0.1"
+          TAG="v1.0.2"
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "Updating existing release $TAG..."
-            gh release upload "$TAG" releases/walletpro-v1.0.1.apk --clobber
+            gh release upload "$TAG" releases/walletpro-v1.0.2.apk --clobber
           else
             echo "Creating new release $TAG..."
-            gh release create "$TAG" releases/walletpro-v1.0.1.apk \
-              --title "WalletPro v1.0.1" \
-              --notes "WalletPro Android Release APK v1.0.1. Fully signed with dedicated release certificate and clean standard permissions to prevent Google Play Protect false positives."
+            gh release create "$TAG" releases/walletpro-v1.0.2.apk \
+              --title "WalletPro v1.0.2" \
+              --notes "WalletPro Android Release APK v1.0.2. Includes native SMS inbox reader and auto-advancing sliding window cutoff to parse historical transactions directly from SMS."
           fi
 
       - name: Commit APK to Repository
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add releases/walletpro-v1.0.1.apk
+          git add releases/walletpro-v1.0.2.apk
           if git diff --staged --quiet; then
             echo "No changes in APK binary"
           else
-            git commit -m "chore: add pre-built WalletPro v1.0.1 Android APK [skip ci]"
+            git commit -m "chore: add pre-built WalletPro v1.0.2 Android APK [skip ci]"
             git push origin main
           fi
