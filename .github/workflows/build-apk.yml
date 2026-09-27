@@ -55,19 +55,8 @@ jobs:
           # Inject permissions into AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n    <uses-permission android:name="android.permission.RECEIVE_SMS" />\n    <uses-permission android:name="android.permission.READ_SMS" />' android/app/src/main/AndroidManifest.xml
 
-          # Inject service into AndroidManifest.xml before </application>
+          # Inject notification service into AndroidManifest.xml
           sed -i '/<\/application>/i \        <service android:name=".TransactionNotificationService" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="false">\n            <intent-filter>\n                <action android:name="android.service.notification.NotificationListenerService" />\n            </intent-filter>\n        </service>' android/app/src/main/AndroidManifest.xml
-
-          # Ensure release APK is signed with debug key for direct sideloading
-          if grep -q "signingConfig = signingConfigs.debug" android/app/build.gradle; then
-            echo "Signing config already present"
-          elif grep -q "signingConfig = signingConfigs.release" android/app/build.gradle; then
-            sed -i 's/signingConfig = signingConfigs.release/signingConfig = signingConfigs.debug/g' android/app/build.gradle
-          elif grep -q "signingConfig signingConfigs.release" android/app/build.gradle; then
-            sed -i 's/signingConfig signingConfigs.release/signingConfig signingConfigs.debug/g' android/app/build.gradle
-          else
-            sed -i 's/buildTypes {/buildTypes {\n        release {\n            signingConfig = signingConfigs.debug\n        }/' android/app/build.gradle
-          fi
 
           chmod +x android/gradlew || true
           flutter pub get
