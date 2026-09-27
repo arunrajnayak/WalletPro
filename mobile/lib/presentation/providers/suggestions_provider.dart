@@ -1,11 +1,3 @@
-import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-part 'suggestions_provider.g.dart';
-
-@riverpod
-class Suggestions extends _$Suggestions {
-  @override
-  List<dynamic> build() {
-    return [];
-  }
-}
+final suggestionsProvider = StateProvider<List<dynamic>>((ref) => []);

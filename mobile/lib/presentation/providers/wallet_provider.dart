@@ -1,11 +1,3 @@
-import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-part 'wallet_provider.g.dart';
-
-@riverpod
-class WalletAccounts extends _$WalletAccounts {
-  @override
-  List<dynamic> build() {
-    return [];
-  }
-}
+final walletAccountsProvider = StateProvider<List<dynamic>>((ref) => []);

@@ -1,11 +1,3 @@
-import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-part 'auth_provider.g.dart';
-
-@riverpod
-class Auth extends _$Auth {
-  @override
-  bool build() {
-    return false; // isAuthenticated
-  }
-}
+final authProvider = StateProvider<bool>((ref) => false);

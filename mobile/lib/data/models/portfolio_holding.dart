@@ -1,22 +1,51 @@
-import 'package:freezed_annotation/freezed_annotation.dart';
+class PortfolioHolding {
+  final String id;
+  final String type;
+  final String name;
+  final String code;
+  final double units;
+  final double avgCost;
+  final double currentNav;
+  final double currentValue;
+  final double previousNav;
+  final double changePercent;
 
-part 'portfolio_holding.freezed.dart';
-part 'portfolio_holding.g.dart';
+  const PortfolioHolding({
+    required this.id,
+    required this.type,
+    required this.name,
+    required this.code,
+    required this.units,
+    required this.avgCost,
+    required this.currentNav,
+    required this.currentValue,
+    required this.previousNav,
+    required this.changePercent,
+  });
 
-@freezed
-class PortfolioHolding with _$PortfolioHolding {
-  const factory PortfolioHolding({
-    required String id,
-    required String type,
-    required String name,
-    required String code,
-    required double units,
-    required double avgCost,
-    required double currentNav,
-    required double currentValue,
-    required double previousNav,
-    required double changePercent,
-  }) = _PortfolioHolding;
+  factory PortfolioHolding.fromJson(Map<String, dynamic> json) => PortfolioHolding(
+        id: json['id'] as String,
+        type: json['type'] as String,
+        name: json['name'] as String,
+        code: json['code'] as String,
+        units: (json['units'] as num?)?.toDouble() ?? 0.0,
+        avgCost: (json['avgCost'] as num?)?.toDouble() ?? 0.0,
+        currentNav: (json['currentNav'] as num?)?.toDouble() ?? 0.0,
+        currentValue: (json['currentValue'] as num?)?.toDouble() ?? 0.0,
+        previousNav: (json['previousNav'] as num?)?.toDouble() ?? 0.0,
+        changePercent: (json['changePercent'] as num?)?.toDouble() ?? 0.0,
+      );
 
-  factory PortfolioHolding.fromJson(Map<String, dynamic> json) => _$PortfolioHoldingFromJson(json);
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'type': type,
+        'name': name,
+        'code': code,
+        'units': units,
+        'avgCost': avgCost,
+        'currentNav': currentNav,
+        'currentValue': currentValue,
+        'previousNav': previousNav,
+        'changePercent': changePercent,
+      };
 }

@@ -1,19 +1,39 @@
-import 'package:freezed_annotation/freezed_annotation.dart';
+class WalletCategory {
+  final String id;
+  final String name;
+  final String groupId;
+  final String groupName;
+  final String? parentId;
+  final bool isCustom;
+  final String? color;
 
-part 'wallet_category.freezed.dart';
-part 'wallet_category.g.dart';
+  const WalletCategory({
+    required this.id,
+    required this.name,
+    required this.groupId,
+    required this.groupName,
+    this.parentId,
+    this.isCustom = false,
+    this.color,
+  });
 
-@freezed
-class WalletCategory with _$WalletCategory {
-  const factory WalletCategory({
-    required String id,
-    required String name,
-    required String groupId,
-    required String groupName,
-    String? parentId,
-    @Default(false) bool isCustom,
-    String? color,
-  }) = _WalletCategory;
+  factory WalletCategory.fromJson(Map<String, dynamic> json) => WalletCategory(
+        id: json['id'] as String,
+        name: json['name'] as String,
+        groupId: json['groupId'] as String,
+        groupName: json['groupName'] as String,
+        parentId: json['parentId'] as String?,
+        isCustom: json['isCustom'] as bool? ?? false,
+        color: json['color'] as String?,
+      );
 
-  factory WalletCategory.fromJson(Map<String, dynamic> json) => _$WalletCategoryFromJson(json);
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'groupId': groupId,
+        'groupName': groupName,
+        'parentId': parentId,
+        'isCustom': isCustom,
+        'color': color,
+      };
 }

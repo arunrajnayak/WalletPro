@@ -1,11 +1,3 @@
-import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-part 'portfolio_provider.g.dart';
-
-@riverpod
-class Portfolio extends _$Portfolio {
-  @override
-  List<dynamic> build() {
-    return [];
-  }
-}
+final portfolioProvider = StateProvider<List<dynamic>>((ref) => []);
