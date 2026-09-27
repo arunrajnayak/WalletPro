@@ -256,7 +256,7 @@ class _SuggestionCardState extends State<SuggestionCard> {
                               Text(
                                 '•••• $last4',
                                 style: theme.textTheme.bodySmall?.copyWith(
-                                  fontWeight: FontWeight.w640,
+                                  fontWeight: FontWeight.w600,
                                   color: theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),

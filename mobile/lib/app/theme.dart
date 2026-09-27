@@ -16,7 +16,7 @@ class AppTheme {
   static ThemeData get lightTheme => ThemeData(
         useMaterial3: true,
         colorScheme: _colorSchemeLight,
-        cardTheme: CardTheme(
+        cardTheme: CardThemeData(
           elevation: 2,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
@@ -27,7 +27,7 @@ class AppTheme {
   static ThemeData get darkTheme => ThemeData(
         useMaterial3: true,
         colorScheme: _colorSchemeDark,
-        cardTheme: CardTheme(
+        cardTheme: CardThemeData(
           elevation: 2,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),

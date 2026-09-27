@@ -10,6 +10,10 @@ class DateFormatter {
     return '${difference.inDays} days ago';
   }
 
+  static String formatDate(DateTime date) {
+    return DateFormat('dd MMM yyyy').format(date);
+  }
+
   static String formatIndian(DateTime date) {
     return DateFormat('dd-MMM-yyyy').format(date);
   }
