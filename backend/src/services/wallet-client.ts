@@ -76,6 +76,9 @@ export class WalletClient {
         'Content-Type': 'application/json',
       },
       timeout: 15000,
+      paramsSerializer: {
+        indexes: null,
+      },
     });
   }
 
@@ -168,7 +171,19 @@ export class WalletClient {
    * Query records with filters
    */
   public async getRecords(filters?: any): Promise<WalletRecord[]> {
-    const res = await this.client.get('/records', { params: filters });
+    const cleanFilters: any = {};
+    if (filters) {
+      for (const [key, value] of Object.entries(filters)) {
+        if (value !== undefined && value !== null) {
+          if (Array.isArray(value)) {
+            cleanFilters[key] = value.length === 1 ? value[0] : value.join(',');
+          } else {
+            cleanFilters[key] = value;
+          }
+        }
+      }
+    }
+    const res = await this.client.get('/records', { params: cleanFilters });
     return Array.isArray(res.data) ? res.data : (res.data.records || res.data.results || []);
   }
 

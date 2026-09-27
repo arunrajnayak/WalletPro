@@ -102,8 +102,8 @@ router.get('/quickview', authenticate, async (req: Request, res: Response) => {
         console.warn('Failed to fetch budgets:', err.message);
         return [];
       }),
-      client.getRecords({ limit: 15, sortBy: ['-recordDate'] }).catch(err => {
-        console.warn('Failed to fetch recent records:', err.message);
+      client.getRecords({ limit: 15 }).catch(err => {
+        console.warn('Failed to fetch recent records:', err.response?.data || err.message);
         return [];
       }),
     ]);
@@ -194,12 +194,12 @@ router.get('/records', authenticate, async (req: Request, res: Response) => {
     const accountId = req.query.accountId as string | undefined;
     const records = await client.getRecords({
       limit,
-      sortBy: ['-recordDate'],
       ...(accountId ? { accountId } : {}),
     });
     res.json(records);
   } catch (err: any) {
-    res.status(500).json({ error: 'Failed to fetch records', details: err.message });
+    console.error('Records fetch error:', err.response?.data || err.message);
+    res.status(500).json({ error: 'Failed to fetch records', details: err.response?.data || err.message });
   }
 });
 
