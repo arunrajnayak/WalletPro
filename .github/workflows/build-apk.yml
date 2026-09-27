@@ -41,22 +41,12 @@ jobs:
       - name: Scaffold Android Scaffolding & Install Dependencies
         working-directory: mobile
         run: |
-          mkdir -p /tmp/backup
-          cp -r android/app/src/main/kotlin/com/walletpro/walletpro/NotificationListenerService.kt /tmp/backup/ 2>/dev/null || true
-
           # Cleanly generate Android project files matching Flutter runner version
           rm -rf android
           flutter create --org com.walletpro --project-name walletpro --platforms=android .
 
-          # Restore custom NotificationListenerService
-          mkdir -p android/app/src/main/kotlin/com/walletpro/walletpro
-          cp /tmp/backup/NotificationListenerService.kt android/app/src/main/kotlin/com/walletpro/walletpro/ 2>/dev/null || true
-
-          # Inject safe network permissions into AndroidManifest.xml (NO high-risk SMS permissions)
+          # Inject safe standard permissions into AndroidManifest.xml (NO high-risk SMS or notification listener permissions)
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' android/app/src/main/AndroidManifest.xml
-
-          # Inject notification service into AndroidManifest.xml
-          sed -i '/<\/application>/i \        <service android:name=".TransactionNotificationService" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="false">\n            <intent-filter>\n                <action android:name="android.service.notification.NotificationListenerService" />\n            </intent-filter>\n        </service>' android/app/src/main/AndroidManifest.xml
 
           chmod +x android/gradlew || true
           flutter pub get
@@ -82,39 +72,39 @@ jobs:
       - name: Stage APK
         run: |
           mkdir -p releases
-          cp mobile/build/app/outputs/flutter-apk/app-release.apk releases/walletpro-v1.0.0.apk
+          cp mobile/build/app/outputs/flutter-apk/app-release.apk releases/walletpro-v1.0.1.apk
           ls -lh releases/
 
       - name: Upload APK as Workflow Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: walletpro-v1.0.0-apk
-          path: releases/walletpro-v1.0.0.apk
+          name: walletpro-v1.0.1-apk
+          path: releases/walletpro-v1.0.1.apk
           retention-days: 30
 
       - name: Create or Update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v1.0.0"
+          TAG="v1.0.1"
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "Updating existing release $TAG..."
-            gh release upload "$TAG" releases/walletpro-v1.0.0.apk --clobber
+            gh release upload "$TAG" releases/walletpro-v1.0.1.apk --clobber
           else
             echo "Creating new release $TAG..."
-            gh release create "$TAG" releases/walletpro-v1.0.0.apk \
-              --title "WalletPro v1.0.0" \
-              --notes "Automated release of WalletPro Android APK. Signed with release certificate."
+            gh release create "$TAG" releases/walletpro-v1.0.1.apk \
+              --title "WalletPro v1.0.1" \
+              --notes "WalletPro Android Release APK v1.0.1. Fully signed with dedicated release certificate and clean standard permissions to prevent Google Play Protect false positives."
           fi
 
       - name: Commit APK to Repository
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add releases/walletpro-v1.0.0.apk
+          git add releases/walletpro-v1.0.1.apk
           if git diff --staged --quiet; then
             echo "No changes in APK binary"
           else
-            git commit -m "chore: add pre-built WalletPro v1.0.0 Android APK [skip ci]"
+            git commit -m "chore: add pre-built WalletPro v1.0.1 Android APK [skip ci]"
             git push origin main
           fi
