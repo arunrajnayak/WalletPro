@@ -56,19 +56,19 @@ class _SuggestionCardState extends State<SuggestionCard> {
     _selectedAccountId = widget.suggestion['walletAccountId'];
 
     // If account not mapped, try matching by last 4 digits
-    final last4 = widget.suggestion['accountLast4'];
-    if (_selectedAccountId == null && last4 != null) {
+    final last4 = widget.suggestion['accountLast4']?.toString().trim();
+    if (_selectedAccountId == null && last4 != null && last4.isNotEmpty) {
       final match = widget.accounts.firstWhere(
-        (acc) => acc['last4Digits'] == last4,
+        (acc) => acc['last4Digits']?.toString().trim() == last4,
         orElse: () => null,
       );
       if (match != null) {
-        _selectedAccountId = match['walletAccountId'];
+        _selectedAccountId = match['walletAccountId'] ?? match['id'];
         _selectedAccountName = match['name'];
       }
     } else if (_selectedAccountId != null) {
       final match = widget.accounts.firstWhere(
-        (acc) => acc['walletAccountId'] == _selectedAccountId,
+        (acc) => (acc['walletAccountId'] == _selectedAccountId || acc['id'] == _selectedAccountId),
         orElse: () => null,
       );
       if (match != null) {
@@ -79,7 +79,7 @@ class _SuggestionCardState extends State<SuggestionCard> {
     // Fallback category name if id is present
     if (_selectedCategoryId != null && _selectedCategoryName == null) {
       final catMatch = widget.categories.firstWhere(
-        (cat) => cat['walletCategoryId'] == _selectedCategoryId,
+        (cat) => (cat['walletCategoryId'] == _selectedCategoryId || cat['id'] == _selectedCategoryId),
         orElse: () => null,
       );
       if (catMatch != null) {
@@ -417,10 +417,10 @@ class _SuggestionCardState extends State<SuggestionCard> {
       background: Container(
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.only(left: 28),
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
           color: const Color(0xFF16A34A),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(22),
         ),
         child: const Row(
           children: [
@@ -436,10 +436,10 @@ class _SuggestionCardState extends State<SuggestionCard> {
       secondaryBackground: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 28),
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
           color: const Color(0xFFDC2626),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(22),
         ),
         child: const Row(
           mainAxisAlignment: MainAxisAlignment.end,
@@ -471,37 +471,111 @@ class _SuggestionCardState extends State<SuggestionCard> {
         return true;
       },
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
           color: theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(22),
           border: Border.all(
             color: theme.colorScheme.outlineVariant.withOpacity(0.6),
-            width: 1,
+            width: 1.2,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+              color: Colors.black.withOpacity(isDark ? 0.25 : 0.05),
+              blurRadius: 14,
+              offset: const Offset(0, 5),
             ),
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // ==========================================
-              // 1. HERO HEADER: Merchant Avatar, Name & Amount
+              // 1. TOP METADATA ROW: Source, Timestamp & AI Confidence
+              // ==========================================
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.65),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          source == 'SMS' ? Icons.sms_outlined : Icons.mail_outline_rounded,
+                          size: 13,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          source,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.5,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (txDate != null) ...[
+                    const SizedBox(width: 10),
+                    Icon(
+                      Icons.access_time_rounded,
+                      size: 14,
+                      color: theme.colorScheme.onSurfaceVariant.withOpacity(0.7),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      DateFormatter.formatFull(txDate),
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                  const Spacer(),
+                  if (aiConfidence != null && aiConfidence >= 0.5)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFF581C87).withOpacity(0.4) : const Color(0xFFF3E8FF),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isDark ? const Color(0xFFA855F7).withOpacity(0.4) : const Color(0xFFD8B4FE),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Text(
+                        '✨ AI ${(aiConfidence * 100).toInt()}% match',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? const Color(0xFFD8B4FE) : const Color(0xFF7E22CE),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // ==========================================
+              // 2. HERO TRANSACTION: Merchant Avatar, Name & Amount
               // ==========================================
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Merchant / Category Avatar
                   Container(
-                    width: 50,
-                    height: 50,
+                    width: 54,
+                    height: 54,
                     decoration: BoxDecoration(
                       color: heroBgColor,
                       borderRadius: BorderRadius.circular(16),
@@ -514,88 +588,44 @@ class _SuggestionCardState extends State<SuggestionCard> {
                       child: Icon(
                         heroIcon,
                         color: amountColor,
-                        size: 24,
+                        size: 26,
                       ),
                     ),
                   ),
                   const SizedBox(width: 14),
-
-                  // Counterparty Title & Date Subtitle
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          counterParty,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 17,
-                            letterSpacing: -0.3,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            if (txDate != null) ...[
-                              Icon(
-                                Icons.access_time_rounded,
-                                size: 13,
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                DateFormatter.formatFull(txDate),
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                            const SizedBox(width: 6),
-                            // Source Badge (SMS / EMAIL)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                source,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                    child: Text(
+                      counterParty,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                        letterSpacing: -0.3,
+                        height: 1.25,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-
-                  // Hero Amount
+                  const SizedBox(width: 12),
                   Text(
                     formattedAmount,
                     style: TextStyle(
                       color: amountColor,
                       fontWeight: FontWeight.w800,
-                      fontSize: 22,
+                      fontSize: 23,
                       letterSpacing: -0.5,
                     ),
                   ),
                 ],
               ),
 
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
 
               // ==========================================
-              // 2. MODERN TYPE TOGGLE (Expense | Income | Transfer)
+              // 3. TRANSACTION TYPE TOGGLE (Expense | Income | Transfer)
               // ==========================================
               Container(
-                height: 44,
+                height: 48,
                 padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
                   color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
@@ -633,20 +663,20 @@ class _SuggestionCardState extends State<SuggestionCard> {
                 ),
               ),
 
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
 
               // ==========================================
-              // 3. SELECTION SECTION: Category & Account Pickers
+              // 4. CATEGORY & ACCOUNT SELECTION
               // ==========================================
               if (isTransfer) ...[
-                // Transfer Flow Movement Container
+                // Transfer Mode: Stacked Source and Destination Accounts
                 Container(
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: isDark
                         ? const Color(0xFF1E293B).withOpacity(0.5)
                         : const Color(0xFFF0F7FF),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(18),
                     border: Border.all(
                       color: isDark
                           ? const Color(0xFF3B82F6).withOpacity(0.3)
@@ -656,50 +686,73 @@ class _SuggestionCardState extends State<SuggestionCard> {
                   ),
                   child: Column(
                     children: [
-                      // FROM (Debit / Source) Account
+                      // FROM Account
                       InkWell(
                         onTap: () => _openAccountPicker(isTarget: false),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(14),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                           decoration: BoxDecoration(
                             color: theme.colorScheme.surface,
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(14),
                             border: Border.all(
                               color: _selectedAccountId != null
-                                  ? theme.colorScheme.outlineVariant.withOpacity(0.5)
+                                  ? theme.colorScheme.outlineVariant.withOpacity(0.6)
                                   : Colors.orange.shade400,
+                              width: 1.2,
                             ),
                           ),
                           child: Row(
                             children: [
                               CircleAvatar(
-                                radius: 16,
+                                radius: 18,
                                 backgroundColor: isDark
                                     ? Colors.red.shade900.withOpacity(0.4)
                                     : Colors.red.shade50,
-                                child: Icon(Icons.arrow_upward_rounded, size: 16, color: Colors.red.shade700),
+                                child: Icon(Icons.arrow_upward_rounded, size: 18, color: Colors.red.shade700),
                               ),
-                              const SizedBox(width: 10),
+                              const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      'FROM (SOURCE ACCOUNT)',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 0.5,
-                                        color: Colors.red.shade700,
-                                      ),
+                                    Row(
+                                      children: [
+                                        Text(
+                                          'SOURCE ACCOUNT (FROM)',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w700,
+                                            letterSpacing: 0.5,
+                                            color: Colors.red.shade700,
+                                          ),
+                                        ),
+                                        if (last4 != null) ...[
+                                          const SizedBox(width: 8),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                            decoration: BoxDecoration(
+                                              color: Colors.red.withOpacity(0.1),
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              'SMS: •••• $last4',
+                                              style: TextStyle(
+                                                fontSize: 9.5,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.red.shade700,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
                                     ),
-                                    const SizedBox(height: 2),
+                                    const SizedBox(height: 3),
                                     Text(
                                       _selectedAccountName ??
-                                          (last4 != null ? 'Mapped: •••• $last4' : 'Select Source Account'),
+                                          (last4 != null ? 'Tap to choose account for •••• $last4' : 'Select Source Account'),
                                       style: TextStyle(
-                                        fontSize: 14,
+                                        fontSize: 14.5,
                                         fontWeight: FontWeight.bold,
                                         color: _selectedAccountName != null
                                             ? theme.colorScheme.onSurface
@@ -711,20 +764,20 @@ class _SuggestionCardState extends State<SuggestionCard> {
                                   ],
                                 ),
                               ),
-                              const Icon(Icons.chevron_right_rounded, size: 20, color: Colors.grey),
+                              const Icon(Icons.keyboard_arrow_down_rounded, size: 22, color: Colors.grey),
                             ],
                           ),
                         ),
                       ),
 
-                      // Animated / Graphic Movement Connector
+                      // Connector
                       Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
                         child: Row(
                           children: [
                             const Expanded(child: Divider(thickness: 1)),
                             Container(
-                              padding: const EdgeInsets.all(4),
+                              padding: const EdgeInsets.all(5),
                               decoration: const BoxDecoration(
                                 color: Color(0xFF2563EB),
                                 shape: BoxShape.circle,
@@ -740,38 +793,38 @@ class _SuggestionCardState extends State<SuggestionCard> {
                         ),
                       ),
 
-                      // TO (Credit / Destination) Account
+                      // TO Account
                       InkWell(
                         onTap: () => _openAccountPicker(isTarget: true),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(14),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                           decoration: BoxDecoration(
                             color: theme.colorScheme.surface,
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(14),
                             border: Border.all(
                               color: _selectedTransferToAccountId != null
-                                  ? theme.colorScheme.outlineVariant.withOpacity(0.5)
+                                  ? theme.colorScheme.outlineVariant.withOpacity(0.6)
                                   : Colors.orange.shade600,
-                              width: _selectedTransferToAccountId != null ? 1 : 1.5,
+                              width: _selectedTransferToAccountId != null ? 1.2 : 1.5,
                             ),
                           ),
                           child: Row(
                             children: [
                               CircleAvatar(
-                                radius: 16,
+                                radius: 18,
                                 backgroundColor: isDark
                                     ? Colors.green.shade900.withOpacity(0.4)
                                     : Colors.green.shade50,
-                                child: Icon(Icons.arrow_downward_rounded, size: 16, color: Colors.green.shade700),
+                                child: Icon(Icons.arrow_downward_rounded, size: 18, color: Colors.green.shade700),
                               ),
-                              const SizedBox(width: 10),
+                              const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'TO (DESTINATION ACCOUNT)',
+                                      'DESTINATION ACCOUNT (TO)',
                                       style: TextStyle(
                                         fontSize: 10,
                                         fontWeight: FontWeight.w700,
@@ -779,11 +832,11 @@ class _SuggestionCardState extends State<SuggestionCard> {
                                         color: Colors.green.shade700,
                                       ),
                                     ),
-                                    const SizedBox(height: 2),
+                                    const SizedBox(height: 3),
                                     Text(
                                       _selectedTransferToAccountName ?? 'Tap to select destination account',
                                       style: TextStyle(
-                                        fontSize: 14,
+                                        fontSize: 14.5,
                                         fontWeight: FontWeight.bold,
                                         color: _selectedTransferToAccountName != null
                                             ? theme.colorScheme.onSurface
@@ -797,9 +850,9 @@ class _SuggestionCardState extends State<SuggestionCard> {
                               ),
                               Icon(
                                 _selectedTransferToAccountId != null
-                                    ? Icons.chevron_right_rounded
+                                    ? Icons.keyboard_arrow_down_rounded
                                     : Icons.touch_app_rounded,
-                                size: 20,
+                                size: 22,
                                 color: _selectedTransferToAccountId != null ? Colors.grey : Colors.orange.shade700,
                               ),
                             ],
@@ -810,242 +863,266 @@ class _SuggestionCardState extends State<SuggestionCard> {
                   ),
                 ),
               ] else ...[
-                // Side-by-side Modern Category & Account Selector Tiles
-                Row(
-                  children: [
-                    // Category Selector Tile
-                    Expanded(
-                      child: InkWell(
-                        onTap: _openCategoryPicker,
-                        borderRadius: BorderRadius.circular(14),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                // Expense & Income Mode: Stacked Full-Width Category & Account Pickers
+                // 1. Category Selector
+                InkWell(
+                  onTap: _openCategoryPicker,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: _selectedCategoryName != null
+                            ? theme.colorScheme.primary.withOpacity(0.4)
+                            : theme.colorScheme.outlineVariant.withOpacity(0.6),
+                        width: 1.2,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
                           decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: _selectedCategoryName != null
-                                  ? theme.colorScheme.primary.withOpacity(0.4)
-                                  : theme.colorScheme.outlineVariant.withOpacity(0.5),
-                            ),
+                            color: theme.colorScheme.primary.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(12),
                           ),
+                          child: Icon(
+                            Icons.category_rounded,
+                            size: 20,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'CATEGORY',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.6,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                _selectedCategoryName ?? 'Select Category',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: _selectedCategoryName != null
+                                      ? theme.colorScheme.onSurface
+                                      : theme.colorScheme.primary,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          size: 24,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                // 2. Account Selector
+                InkWell(
+                  onTap: () => _openAccountPicker(isTarget: false),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: _selectedAccountName != null
+                            ? theme.colorScheme.primary.withOpacity(0.4)
+                            : Colors.orange.shade400,
+                        width: 1.2,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2563EB).withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.account_balance_wallet_rounded,
+                            size: 20,
+                            color: Color(0xFF2563EB),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
                                 children: [
-                                  Icon(
-                                    Icons.category_outlined,
-                                    size: 13,
-                                    color: theme.colorScheme.primary,
-                                  ),
-                                  const SizedBox(width: 4),
                                   Text(
-                                    'CATEGORY',
+                                    'ACCOUNT',
                                     style: TextStyle(
-                                      fontSize: 10,
+                                      fontSize: 10.5,
                                       fontWeight: FontWeight.w700,
-                                      letterSpacing: 0.5,
+                                      letterSpacing: 0.6,
                                       color: theme.colorScheme.onSurfaceVariant,
                                     ),
                                   ),
-                                  if (aiConfidence != null) ...[
-                                    const Spacer(),
+                                  if (last4 != null) ...[
+                                    const SizedBox(width: 8),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
                                       decoration: BoxDecoration(
-                                        color: Colors.purple.shade50,
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(color: Colors.purple.shade200, width: 0.5),
+                                        color: Colors.green.withOpacity(0.12),
+                                        borderRadius: BorderRadius.circular(6),
                                       ),
                                       child: Text(
-                                        '✨ AI ${(aiConfidence * 100).toInt()}%',
+                                        'SMS: •••• $last4',
                                         style: TextStyle(
-                                          fontSize: 8.5,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.purple.shade700,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.green.shade700,
                                         ),
                                       ),
                                     ),
                                   ],
                                 ],
                               ),
-                              const SizedBox(height: 6),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      _selectedCategoryName ?? 'Select Category',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: _selectedCategoryName != null
-                                            ? theme.colorScheme.onSurface
-                                            : theme.colorScheme.primary,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  const Icon(Icons.arrow_drop_down, size: 18, color: Colors.grey),
-                                ],
+                              const SizedBox(height: 3),
+                              Text(
+                                _selectedAccountName ??
+                                    (last4 != null
+                                        ? 'Tap to select account for •••• $last4'
+                                        : 'Tap to select account'),
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: _selectedAccountName != null
+                                      ? theme.colorScheme.onSurface
+                                      : Colors.orange.shade800,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ],
                           ),
                         ),
-                      ),
-                    ),
-
-                    const SizedBox(width: 10),
-
-                    // Account Selector Tile
-                    Expanded(
-                      child: InkWell(
-                        onTap: () => _openAccountPicker(isTarget: false),
-                        borderRadius: BorderRadius.circular(14),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.3),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: _selectedAccountName != null
-                                  ? theme.colorScheme.primary.withOpacity(0.4)
-                                  : theme.colorScheme.outlineVariant.withOpacity(0.5),
-                            ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.account_balance_outlined,
-                                    size: 13,
-                                    color: theme.colorScheme.primary,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    'ACCOUNT',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w700,
-                                      letterSpacing: 0.5,
-                                      color: theme.colorScheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                  if (last4 != null) ...[
-                                    const Spacer(),
-                                    Text(
-                                      '•••• $last4',
-                                      style: TextStyle(
-                                        fontSize: 9.5,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.green.shade700,
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      _selectedAccountName ??
-                                          (last4 != null ? '•••• $last4' : 'Select Account'),
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: _selectedAccountName != null
-                                            ? theme.colorScheme.onSurface
-                                            : Colors.orange.shade800,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  const Icon(Icons.arrow_drop_down, size: 18, color: Colors.grey),
-                                ],
-                              ),
-                            ],
-                          ),
+                        Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          size: 24,
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ],
 
               // Optional Note / Reference Info
-              if (refNumber != null && refNumber.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Icon(Icons.receipt_long_outlined, size: 14, color: theme.colorScheme.outline),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Ref: $refNumber',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.outline,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-              if (note != null && note.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Icon(Icons.sticky_note_2_outlined, size: 14, color: theme.colorScheme.outline),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        note,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.outline,
-                          fontSize: 11,
+              if ((refNumber != null && refNumber.isNotEmpty) || (note != null && note.isNotEmpty)) ...[
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.25),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (refNumber != null && refNumber.isNotEmpty)
+                        Row(
+                          children: [
+                            Icon(Icons.receipt_long_outlined, size: 15, color: theme.colorScheme.outline),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Ref: $refNumber',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.outline,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
+                      if (refNumber != null && refNumber.isNotEmpty && note != null && note.isNotEmpty)
+                        const SizedBox(height: 6),
+                      if (note != null && note.isNotEmpty)
+                        Row(
+                          children: [
+                            Icon(Icons.sticky_note_2_outlined, size: 15, color: theme.colorScheme.outline),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                note,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.outline,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
                 ),
               ],
 
               // ==========================================
-              // 4. COLLAPSIBLE ORIGINAL SMS MESSAGE
+              // 5. COLLAPSIBLE ORIGINAL SMS MESSAGE
               // ==========================================
               if (rawText.isNotEmpty) ...[
-                const SizedBox(height: 10),
+                const SizedBox(height: 14),
                 InkWell(
                   onTap: () => setState(() => _showRawText = !_showRawText),
-                  borderRadius: BorderRadius.circular(8),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: theme.colorScheme.outlineVariant.withOpacity(0.4),
+                      ),
+                    ),
                     child: Row(
                       children: [
                         Icon(
                           Icons.sms_outlined,
-                          size: 15,
-                          color: theme.colorScheme.outline,
+                          size: 16,
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 8),
                         Text(
                           _showRawText ? 'Hide original message' : 'View original message',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.outline,
-                            fontWeight: FontWeight.w500,
-                            fontSize: 11.5,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12.5,
                           ),
                         ),
-                        const SizedBox(width: 4),
+                        const Spacer(),
                         Icon(
                           _showRawText ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
-                          size: 16,
-                          color: theme.colorScheme.outline,
+                          size: 20,
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ],
                     ),
@@ -1053,11 +1130,11 @@ class _SuggestionCardState extends State<SuggestionCard> {
                 ),
                 if (_showRawText)
                   Container(
-                    margin: const EdgeInsets.only(top: 6),
-                    padding: const EdgeInsets.all(10),
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.35),
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: theme.colorScheme.outlineVariant.withOpacity(0.4),
                       ),
@@ -1070,13 +1147,13 @@ class _SuggestionCardState extends State<SuggestionCard> {
                             rawText,
                             style: theme.textTheme.bodySmall?.copyWith(
                               fontFamily: 'monospace',
-                              fontSize: 11,
-                              height: 1.35,
+                              fontSize: 12,
+                              height: 1.4,
                             ),
                           ),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.copy_rounded, size: 16),
+                          icon: const Icon(Icons.copy_rounded, size: 18),
                           tooltip: 'Copy SMS',
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
@@ -1095,10 +1172,10 @@ class _SuggestionCardState extends State<SuggestionCard> {
                   ),
               ],
 
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
 
               // ==========================================
-              // 5. SPACIOUS ACTION BUTTONS (Reject & Approve)
+              // 6. SPACIOUS ACTION BUTTONS (Reject & Approve)
               // ==========================================
               Row(
                 children: [
@@ -1106,7 +1183,7 @@ class _SuggestionCardState extends State<SuggestionCard> {
                   Expanded(
                     flex: 2,
                     child: SizedBox(
-                      height: 48,
+                      height: 52,
                       child: OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
                           foregroundColor: isDark ? const Color(0xFFF87171) : const Color(0xFFDC2626),
@@ -1118,13 +1195,13 @@ class _SuggestionCardState extends State<SuggestionCard> {
                               ? const Color(0xFF450A0A).withOpacity(0.3)
                               : const Color(0xFFFEF2F2),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        icon: const Icon(Icons.close_rounded, size: 18),
+                        icon: const Icon(Icons.close_rounded, size: 20),
                         label: const Text(
                           'Reject',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                         ),
                         onPressed: _isProcessing ? null : _handleReject,
                       ),
@@ -1137,7 +1214,7 @@ class _SuggestionCardState extends State<SuggestionCard> {
                   Expanded(
                     flex: 3,
                     child: SizedBox(
-                      height: 48,
+                      height: 52,
                       child: FilledButton.icon(
                         style: FilledButton.styleFrom(
                           backgroundColor: isTransfer
@@ -1146,25 +1223,25 @@ class _SuggestionCardState extends State<SuggestionCard> {
                           foregroundColor: Colors.white,
                           elevation: 1,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: BorderRadius.circular(16),
                           ),
                         ),
                         icon: _isProcessing
                             ? const SizedBox(
-                                width: 16,
-                                height: 16,
+                                width: 18,
+                                height: 18,
                                 child: CircularProgressIndicator(
                                   color: Colors.white,
-                                  strokeWidth: 2.2,
+                                  strokeWidth: 2.4,
                                 ),
                               )
                             : Icon(
                                 isTransfer ? Icons.swap_horiz_rounded : Icons.check_circle_outline_rounded,
-                                size: 18,
+                                size: 20,
                               ),
                         label: Text(
                           isTransfer ? 'Transfer & Sync' : 'Approve & Sync',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                         ),
                         onPressed: _isProcessing ? null : _handleApprove,
                       ),
@@ -1213,15 +1290,15 @@ class _SuggestionCardState extends State<SuggestionCard> {
             children: [
               Icon(
                 icon,
-                size: 15,
+                size: 16,
                 color: isSelected ? activeColor : Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.7),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 5),
               Text(
                 title,
                 style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  fontSize: 13.5,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
                   color: isSelected ? activeColor : Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.7),
                 ),
               ),
