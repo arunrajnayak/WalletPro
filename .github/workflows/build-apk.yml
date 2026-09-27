@@ -79,39 +79,39 @@ jobs:
       - name: Stage APK
         run: |
           mkdir -p releases
-          cp mobile/build/app/outputs/flutter-apk/app-release.apk releases/walletpro-v1.0.5.apk
+          cp mobile/build/app/outputs/flutter-apk/app-release.apk releases/walletpro-v1.0.6.apk
           ls -lh releases/
 
       - name: Upload APK as Workflow Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: walletpro-v1.0.5-apk
-          path: releases/walletpro-v1.0.5.apk
+          name: walletpro-v1.0.6-apk
+          path: releases/walletpro-v1.0.6.apk
           retention-days: 30
 
       - name: Create or Update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v1.0.5"
+          TAG="v1.0.6"
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "Updating existing release $TAG..."
-            gh release upload "$TAG" releases/walletpro-v1.0.5.apk --clobber
+            gh release upload "$TAG" releases/walletpro-v1.0.6.apk --clobber
           else
             echo "Creating new release $TAG..."
-            gh release create "$TAG" releases/walletpro-v1.0.5.apk \
-              --title "WalletPro v1.0.5" \
-              --notes "WalletPro Android Release APK v1.0.5. Exact account ordering matching BudgetBakers app with drag-and-drop reordering, Wallet records error fix, and transfer transactions."
+            gh release create "$TAG" releases/walletpro-v1.0.6.apk \
+              --title "WalletPro v1.0.6" \
+              --notes "WalletPro Android Release APK v1.0.6. Redesigned review cards with bigger, modern, tactile UI, spacious typography, hero amounts, 3-option segmented control, and modern interactive selector cards."
           fi
 
       - name: Commit APK to Repository
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add releases/walletpro-v1.0.5.apk
+          git add releases/walletpro-v1.0.6.apk
           if git diff --staged --quiet; then
             echo "No changes in APK binary"
           else
-            git commit -m "chore: add pre-built WalletPro v1.0.5 Android APK [skip ci]"
+            git commit -m "chore: add pre-built WalletPro v1.0.6 Android APK [skip ci]"
             git push origin main
           fi
