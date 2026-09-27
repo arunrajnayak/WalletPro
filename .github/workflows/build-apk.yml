@@ -79,39 +79,39 @@ jobs:
       - name: Stage APK
         run: |
           mkdir -p releases
-          cp mobile/build/app/outputs/flutter-apk/app-release.apk releases/walletpro-v1.2.1.apk
+          cp mobile/build/app/outputs/flutter-apk/app-release.apk releases/walletpro-v1.2.2.apk
           ls -lh releases/
 
       - name: Upload APK as Workflow Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: walletpro-v1.2.1-apk
-          path: releases/walletpro-v1.2.1.apk
+          name: walletpro-v1.2.2-apk
+          path: releases/walletpro-v1.2.2.apk
           retention-days: 30
 
       - name: Create or Update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v1.2.1"
+          TAG="v1.2.2"
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "Updating existing release $TAG..."
-            gh release upload "$TAG" releases/walletpro-v1.2.1.apk --clobber
+            gh release upload "$TAG" releases/walletpro-v1.2.2.apk --clobber
           else
             echo "Creating new release $TAG..."
-            gh release create "$TAG" releases/walletpro-v1.2.1.apk \
-              --title "WalletPro v1.2.1" \
-              --notes "WalletPro Android Release APK v1.2.1. Features: Ultra-modern Liquid Glass Navigation Bar with real-time backdrop blur, specular glass perimeter highlights, overhead light refraction beam, animated fluid droplet pill indicators, glowing liquid review badges, and tactile haptic feedback."
+            gh release create "$TAG" releases/walletpro-v1.2.2.apk \
+              --title "WalletPro v1.2.2" \
+              --notes "WalletPro Android Release APK v1.2.2. Features: Mandatory category & account validation for transaction approval; mandatory from/to account validation for transfers; simplified From & To labels with clear REQUIRED visual indicators."
           fi
 
       - name: Commit APK to Repository
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add releases/walletpro-v1.2.1.apk
+          git add releases/walletpro-v1.2.2.apk
           if git diff --staged --quiet; then
             echo "No changes in APK binary"
           else
-            git commit -m "chore: add pre-built WalletPro v1.2.1 Android APK [skip ci]"
+            git commit -m "chore: add pre-built WalletPro v1.2.2 Android APK [skip ci]"
             git push origin main
           fi

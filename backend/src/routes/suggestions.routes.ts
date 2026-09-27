@@ -245,6 +245,26 @@ router.patch('/:id/approve', authenticate, async (req: Request, res: Response) =
   const finalCategoryId = walletCategoryId || suggestion.walletCategoryId;
   const isTransferTx = isTransfer === true || transactionType === 'transfer';
 
+  // Enforce mandatory requirements
+  if (isTransferTx) {
+    if (!finalAccountId) {
+      return res.status(400).json({ error: 'From account is mandatory for transfers' });
+    }
+    if (!transferToAccountId) {
+      return res.status(400).json({ error: 'To account is mandatory for transfers' });
+    }
+    if (finalAccountId === transferToAccountId) {
+      return res.status(400).json({ error: 'From and To accounts must be different' });
+    }
+  } else {
+    if (!finalAccountId) {
+      return res.status(400).json({ error: 'Account is mandatory to approve transaction' });
+    }
+    if (!finalCategoryId) {
+      return res.status(400).json({ error: 'Category is mandatory to approve transaction' });
+    }
+  }
+
   let walletRecordId: string | undefined;
   let syncStatus = 'approved';
 

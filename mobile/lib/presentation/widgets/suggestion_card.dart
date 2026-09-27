@@ -142,9 +142,9 @@ class _SuggestionCardState extends State<SuggestionCard> {
             }).toList();
 
             final title = isTarget
-                ? 'Select Destination Account (To)'
+                ? 'Select To Account'
                 : (_transactionType == 'transfer'
-                    ? 'Select Source Account (From)'
+                    ? 'Select From Account'
                     : 'Select Wallet Account');
 
             return Container(
@@ -309,36 +309,60 @@ class _SuggestionCardState extends State<SuggestionCard> {
     }
   }
 
-  Future<void> _handleApprove() async {
-    if (_isProcessing) return;
+  Future<bool> _handleApprove() async {
+    if (_isProcessing) return false;
 
     if (_transactionType == 'transfer') {
       if (_selectedAccountId == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Please select the source account (From)'),
+            content: Text('Please select From account for transfer'),
             backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
           ),
         );
-        return;
+        return false;
       }
       if (_selectedTransferToAccountId == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Please select the destination account (To) for transfer'),
+            content: Text('Please select To account for transfer'),
             backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
           ),
         );
-        return;
+        return false;
       }
       if (_selectedAccountId == _selectedTransferToAccountId) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Source and destination accounts must be different'),
+            content: Text('From and To accounts must be different'),
             backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
           ),
         );
-        return;
+        return false;
+      }
+    } else {
+      if (_selectedAccountId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select an Account to approve'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
+          ),
+        );
+        return false;
+      }
+      if (_selectedCategoryId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select a Category to approve'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
+          ),
+        );
+        return false;
       }
     }
 
@@ -354,6 +378,9 @@ class _SuggestionCardState extends State<SuggestionCard> {
         isTransfer: isTransfer,
         transferToAccountId: isTransfer ? _selectedTransferToAccountId : null,
       );
+      return true;
+    } catch (_) {
+      return false;
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
@@ -462,20 +489,12 @@ class _SuggestionCardState extends State<SuggestionCard> {
       ),
       confirmDismiss: (direction) async {
         if (direction == DismissDirection.startToEnd) {
-          if (isTransfer && _selectedTransferToAccountId == null) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Please select destination account before approving transfer'),
-                backgroundColor: Colors.orange,
-              ),
-            );
-            return false;
-          }
-          await _handleApprove();
+          final approved = await _handleApprove();
+          return approved;
         } else {
           await _handleReject();
+          return true;
         }
-        return true;
       },
       child: Container(
         margin: cardMargin,
@@ -726,14 +745,34 @@ class _SuggestionCardState extends State<SuggestionCard> {
                                     Row(
                                       children: [
                                         Text(
-                                          'SOURCE ACCOUNT (FROM)',
+                                          'FROM',
                                           style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w700,
-                                            letterSpacing: 0.5,
-                                            color: Colors.red.shade700,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w800,
+                                            letterSpacing: 0.8,
+                                            color: _selectedAccountId != null
+                                                ? (isDark ? Colors.blue.shade300 : const Color(0xFF2563EB))
+                                                : Colors.red.shade700,
                                           ),
                                         ),
+                                        if (_selectedAccountId == null) ...[
+                                          const SizedBox(width: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                            decoration: BoxDecoration(
+                                              color: Colors.red.withOpacity(0.12),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              'REQUIRED',
+                                              style: TextStyle(
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.red.shade700,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                         if (last4 != null) ...[
                                           const SizedBox(width: 8),
                                           Container(
@@ -757,7 +796,7 @@ class _SuggestionCardState extends State<SuggestionCard> {
                                     const SizedBox(height: 3),
                                     Text(
                                       _selectedAccountName ??
-                                          (last4 != null ? 'Tap to choose account for •••• $last4' : 'Select Source Account'),
+                                          (last4 != null ? 'Select From account (•••• $last4)' : 'Select From account'),
                                       style: TextStyle(
                                         fontSize: 14.5,
                                         fontWeight: FontWeight.bold,
@@ -830,18 +869,42 @@ class _SuggestionCardState extends State<SuggestionCard> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      'DESTINATION ACCOUNT (TO)',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 0.5,
-                                        color: Colors.green.shade700,
-                                      ),
+                                    Row(
+                                      children: [
+                                        Text(
+                                          'TO',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w800,
+                                            letterSpacing: 0.8,
+                                            color: _selectedTransferToAccountId != null
+                                                ? (isDark ? Colors.green.shade300 : const Color(0xFF16A34A))
+                                                : Colors.orange.shade700,
+                                          ),
+                                        ),
+                                        if (_selectedTransferToAccountId == null) ...[
+                                          const SizedBox(width: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                            decoration: BoxDecoration(
+                                              color: Colors.orange.withOpacity(0.15),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              'REQUIRED',
+                                              style: TextStyle(
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.orange.shade800,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
                                     ),
                                     const SizedBox(height: 3),
                                     Text(
-                                      _selectedTransferToAccountName ?? 'Tap to select destination account',
+                                      _selectedTransferToAccountName ?? 'Select To account',
                                       style: TextStyle(
                                         fontSize: 14.5,
                                         fontWeight: FontWeight.bold,
@@ -883,7 +946,7 @@ class _SuggestionCardState extends State<SuggestionCard> {
                       border: Border.all(
                         color: _selectedCategoryName != null
                             ? theme.colorScheme.primary.withOpacity(0.4)
-                            : theme.colorScheme.outlineVariant.withOpacity(0.6),
+                            : Colors.orange.shade400,
                         width: 1.2,
                       ),
                     ),
@@ -907,14 +970,36 @@ class _SuggestionCardState extends State<SuggestionCard> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                'CATEGORY',
-                                style: TextStyle(
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.6,
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
+                              Row(
+                                children: [
+                                  Text(
+                                    'CATEGORY',
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.6,
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                  if (_selectedCategoryId == null) ...[
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                      decoration: BoxDecoration(
+                                        color: Colors.orange.withOpacity(0.15),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        'REQUIRED',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.orange.shade800,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
                               const SizedBox(height: 3),
                               Text(
@@ -924,7 +1009,7 @@ class _SuggestionCardState extends State<SuggestionCard> {
                                   fontWeight: FontWeight.w700,
                                   color: _selectedCategoryName != null
                                       ? theme.colorScheme.onSurface
-                                      : theme.colorScheme.primary,
+                                      : Colors.orange.shade800,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -991,6 +1076,24 @@ class _SuggestionCardState extends State<SuggestionCard> {
                                       color: theme.colorScheme.onSurfaceVariant,
                                     ),
                                   ),
+                                  if (_selectedAccountId == null) ...[
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                      decoration: BoxDecoration(
+                                        color: Colors.orange.withOpacity(0.15),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        'REQUIRED',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.orange.shade800,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                   if (last4 != null) ...[
                                     const SizedBox(width: 8),
                                     Container(
@@ -1015,8 +1118,8 @@ class _SuggestionCardState extends State<SuggestionCard> {
                               Text(
                                 _selectedAccountName ??
                                     (last4 != null
-                                        ? 'Tap to select account for •••• $last4'
-                                        : 'Tap to select account'),
+                                        ? 'Select account (•••• $last4)'
+                                        : 'Select Account'),
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w700,
