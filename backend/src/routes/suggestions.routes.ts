@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { authenticate } from '../middleware/auth';
-import { prisma } from '../prisma';
+import { prisma, ensureDbConstraints } from '../prisma';
 import { SmsParser } from '../services/sms-parser';
 import { DedupEngine } from '../services/dedup-engine';
 import { CategoryAI } from '../services/category-ai';
@@ -154,6 +154,8 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     amount,
     parsed.transactionType || 'expense'
   );
+
+  await ensureDbConstraints();
 
   const suggestion = await prisma.suggestion.create({
     data: {
@@ -316,23 +318,48 @@ router.patch('/:id/approve', authenticate, async (req: Request, res: Response) =
     }
   }
 
-  const updated = await prisma.suggestion.update({
-    where: { id },
-    data: {
-      status: syncStatus,
-      transactionType: isTransferTx ? 'transfer' : (transactionType || suggestion.transactionType),
-      walletAccountId: finalAccountId,
-      walletCategoryId: isTransferTx ? null : finalCategoryId,
-      walletCategoryName: isTransferTx ? 'Transfer' : (walletCategoryName || suggestion.walletCategoryName),
-      walletRecordId,
-      parsedData: {
-        ...((suggestion.parsedData as any) || {}),
-        ifTransfer: isTransferTx,
-        transferToAccountId: isTransferTx ? transferToAccountId : undefined,
-      },
-      actionedAt: new Date(),
+  await ensureDbConstraints();
+
+  const updateData = {
+    status: syncStatus,
+    transactionType: isTransferTx ? 'transfer' : (transactionType || suggestion.transactionType),
+    walletAccountId: finalAccountId,
+    walletCategoryId: isTransferTx ? null : finalCategoryId,
+    walletCategoryName: isTransferTx ? 'Transfer' : (walletCategoryName || suggestion.walletCategoryName),
+    walletRecordId,
+    parsedData: {
+      ...((suggestion.parsedData as any) || {}),
+      ifTransfer: isTransferTx,
+      transferToAccountId: isTransferTx ? transferToAccountId : undefined,
     },
-  });
+    actionedAt: new Date(),
+  };
+
+  let updated;
+  try {
+    updated = await prisma.suggestion.update({
+      where: { id },
+      data: updateData,
+    });
+  } catch (updateErr: any) {
+    if (updateErr?.code === 'P2003' || updateErr?.message?.includes('suggestions_wallet_account_id_fkey')) {
+      console.warn('Recovering from foreign key constraint on wallet_account_id: dropping constraint and retrying...');
+      try {
+        await prisma.$executeRawUnsafe(`
+          ALTER TABLE "suggestions" DROP CONSTRAINT IF EXISTS "suggestions_wallet_account_id_fkey";
+        `);
+        updated = await prisma.suggestion.update({
+          where: { id },
+          data: updateData,
+        });
+      } catch (retryErr: any) {
+        console.error('Retry after dropping constraint failed:', retryErr);
+        throw retryErr;
+      }
+    } else {
+      throw updateErr;
+    }
+  }
 
   // Learn merchant -> category preference
   if (suggestion.counterParty && finalCategoryId) {
@@ -399,6 +426,7 @@ router.post('/batch', authenticate, async (req: Request, res: Response) => {
   }
 
   if (action === 'approve') {
+    await ensureDbConstraints();
     await prisma.suggestion.updateMany({
       where: { id: { in: ids }, userId },
       data: {

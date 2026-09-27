@@ -42,7 +42,6 @@ model WalletAccount {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  suggestions     Suggestion[]
 
   @@unique([userId, walletAccountId])
   @@map("wallet_accounts")
@@ -74,7 +73,6 @@ model Suggestion {
   actionedAt        DateTime? @map("actioned_at")
 
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  walletAccount     WalletAccount? @relation(fields: [walletAccountId], references: [id])
   dedupEntries      DedupEntry[]
 
   @@index([userId, status])
