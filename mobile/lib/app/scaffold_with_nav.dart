@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../presentation/providers/pending_count_provider.dart';
+import '../presentation/widgets/liquid_glass_nav_bar.dart';
 
 class ScaffoldWithNestedNavigation extends ConsumerWidget {
   final StatefulNavigationShell navigationShell;
@@ -23,47 +24,31 @@ class ScaffoldWithNestedNavigation extends ConsumerWidget {
     final pendingCount = ref.watch(pendingCountProvider);
 
     return Scaffold(
+      extendBody: true,
       body: navigationShell,
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: LiquidGlassNavBar(
         selectedIndex: navigationShell.currentIndex,
         onDestinationSelected: (index) => _onTap(context, index),
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.dashboard_outlined),
-            selectedIcon: Icon(Icons.dashboard_rounded),
+        items: [
+          const LiquidGlassNavItem(
+            icon: Icons.dashboard_outlined,
+            selectedIcon: Icons.dashboard_rounded,
             label: 'Home',
           ),
-          const NavigationDestination(
-            icon: Icon(Icons.grid_view_outlined),
-            selectedIcon: Icon(Icons.grid_view_rounded),
+          const LiquidGlassNavItem(
+            icon: Icons.grid_view_outlined,
+            selectedIcon: Icons.grid_view_rounded,
             label: 'QuickView',
           ),
-          NavigationDestination(
-            icon: pendingCount > 0
-                ? Badge(
-                    label: Text(
-                      '$pendingCount',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10),
-                    ),
-                    backgroundColor: Colors.orange.shade800,
-                    child: const Icon(Icons.checklist_rtl_outlined),
-                  )
-                : const Icon(Icons.checklist_rtl_outlined),
-            selectedIcon: pendingCount > 0
-                ? Badge(
-                    label: Text(
-                      '$pendingCount',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10),
-                    ),
-                    backgroundColor: Colors.orange.shade800,
-                    child: const Icon(Icons.checklist_rtl_rounded),
-                  )
-                : const Icon(Icons.checklist_rtl_rounded),
+          LiquidGlassNavItem(
+            icon: Icons.checklist_rtl_outlined,
+            selectedIcon: Icons.checklist_rtl_rounded,
             label: 'Review',
+            badgeCount: pendingCount,
           ),
-          const NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings_rounded),
+          const LiquidGlassNavItem(
+            icon: Icons.settings_outlined,
+            selectedIcon: Icons.settings_rounded,
             label: 'Settings',
           ),
         ],

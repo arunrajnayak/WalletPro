@@ -755,7 +755,7 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
       color: Colors.white,
       backgroundColor: cardDarkColor,
       child: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 100),
         children: [
           // Section Title: My Accounts in Wallet + Reorder & '>' Buttons
           Row(

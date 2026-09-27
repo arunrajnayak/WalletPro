@@ -452,7 +452,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
                         : RefreshIndicator(
                             onRefresh: _loadData,
                             child: ListView.builder(
-                              padding: const EdgeInsets.only(top: 8, bottom: 24),
+                              padding: const EdgeInsets.only(top: 8, bottom: 100),
                               itemCount: _suggestions.length,
                               itemBuilder: (context, index) {
                                 final item = _suggestions[index];
