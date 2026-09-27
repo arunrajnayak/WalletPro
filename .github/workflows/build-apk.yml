@@ -52,8 +52,8 @@ jobs:
           mkdir -p android/app/src/main/kotlin/com/walletpro/walletpro
           cp /tmp/backup/NotificationListenerService.kt android/app/src/main/kotlin/com/walletpro/walletpro/ 2>/dev/null || true
 
-          # Inject permissions into AndroidManifest.xml
-          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n    <uses-permission android:name="android.permission.RECEIVE_SMS" />\n    <uses-permission android:name="android.permission.READ_SMS" />' android/app/src/main/AndroidManifest.xml
+          # Inject safe network permissions into AndroidManifest.xml (NO high-risk SMS permissions)
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' android/app/src/main/AndroidManifest.xml
 
           # Inject notification service into AndroidManifest.xml
           sed -i '/<\/application>/i \        <service android:name=".TransactionNotificationService" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="false">\n            <intent-filter>\n                <action android:name="android.service.notification.NotificationListenerService" />\n            </intent-filter>\n        </service>' android/app/src/main/AndroidManifest.xml
@@ -65,6 +65,19 @@ jobs:
         working-directory: mobile
         run: |
           flutter build apk --release --no-tree-shake-icons
+
+      - name: Sign APK with Dedicated Release Keystore
+        run: |
+          BUILD_TOOLS_DIR=$(ls -d $ANDROID_SDK_ROOT/build-tools/* | sort -V | tail -n 1)
+          echo "Using Android build tools: $BUILD_TOOLS_DIR"
+          $BUILD_TOOLS_DIR/apksigner sign \
+            --ks mobile/android/app/walletpro-release.jks \
+            --ks-pass pass:walletpro_secure_key_2026 \
+            --key-pass pass:walletpro_secure_key_2026 \
+            --ks-key-alias walletpro \
+            mobile/build/app/outputs/flutter-apk/app-release.apk
+
+          $BUILD_TOOLS_DIR/apksigner verify --verbose mobile/build/app/outputs/flutter-apk/app-release.apk
 
       - name: Stage APK
         run: |
@@ -91,7 +104,7 @@ jobs:
             echo "Creating new release $TAG..."
             gh release create "$TAG" releases/walletpro-v1.0.0.apk \
               --title "WalletPro v1.0.0" \
-              --notes "Automated release of WalletPro Android APK. Direct download for Android devices."
+              --notes "Automated release of WalletPro Android APK. Signed with release certificate."
           fi
 
       - name: Commit APK to Repository
