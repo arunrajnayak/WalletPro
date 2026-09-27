@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "npx prisma generate && tsc",
+  "buildCommand": "npm run build",
   "rewrites": [
     {
       "source": "/(.*)",
