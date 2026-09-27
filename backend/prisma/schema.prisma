@@ -1,0 +1,160 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(uuid())
+  firebaseUid     String   @unique @map("firebase_uid")
+  email           String?
+  displayName     String?  @map("display_name")
+  walletApiToken  String?  @map("wallet_api_token")
+  gmailRefreshToken String? @map("gmail_refresh_token")
+  gmailHistoryId  String?  @map("gmail_history_id")
+  preferences     Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  walletAccounts   WalletAccount[]
+  suggestions      Suggestion[]
+  dedupEntries     DedupEntry[]
+  merchantCategories MerchantCategory[]
+  portfolioHoldings PortfolioHolding[]
+
+  @@map("users")
+}
+
+model WalletAccount {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  walletAccountId String   @map("wallet_account_id")
+  name            String
+  currencyCode    String   @map("currency_code")
+  accountType     String   @map("account_type")
+  last4Digits     String?  @map("last4_digits")
+  isActive        Boolean  @default(true) @map("is_active")
+  syncedAt        DateTime? @map("synced_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  suggestions     Suggestion[]
+
+  @@unique([userId, walletAccountId])
+  @@map("wallet_accounts")
+}
+
+model Suggestion {
+  id                String   @id @default(uuid())
+  userId            String   @map("user_id")
+  source            String   // 'sms' | 'email' | 'portfolio' | 'nps'
+  status            String   @default("pending") // 'pending' | 'approved' | 'rejected' | 'synced' | 'expired'
+  amount            Decimal  @db.Decimal(12, 2)
+  currencyCode      String   @default("INR") @map("currency_code")
+  transactionType   String   @map("transaction_type") // 'expense' | 'income'
+  counterParty      String?  @map("counter_party")
+  note              String?
+  referenceNumber   String?  @map("reference_number")
+  accountLast4      String?  @map("account_last4")
+  walletAccountId   String?  @map("wallet_account_id")
+  walletCategoryId  String?  @map("wallet_category_id")
+  walletCategoryName String? @map("wallet_category_name")
+  walletRecordId    String?  @map("wallet_record_id")
+  rawText           String?  @map("raw_text")
+  sourceId          String?  @map("source_id")
+  aiConfidence      Float?   @map("ai_confidence")
+  aiSuggestedCategory String? @map("ai_suggested_category")
+  parsedData        Json?    @map("parsed_data")
+  transactionDate   DateTime @map("transaction_date")
+  createdAt         DateTime @default(now()) @map("created_at")
+  actionedAt        DateTime? @map("actioned_at")
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  walletAccount     WalletAccount? @relation(fields: [walletAccountId], references: [id])
+  dedupEntries      DedupEntry[]
+
+  @@index([userId, status])
+  @@index([userId, transactionDate])
+  @@index([userId, source, status])
+  @@map("suggestions")
+}
+
+model DedupEntry {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  referenceNumber String?  @map("reference_number")
+  amount          Decimal  @db.Decimal(12, 2)
+  accountLast4    String?  @map("account_last4")
+  transactionDate DateTime @map("transaction_date")
+  source          String   // 'sms' | 'email' | 'wallet'
+  suggestionId    String?  @map("suggestion_id")
+  hash            String   // SHA-256 hash for fast lookup
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  suggestion      Suggestion? @relation(fields: [suggestionId], references: [id])
+
+  @@index([userId, hash])
+  @@index([userId, referenceNumber])
+  @@index([userId, amount, transactionDate])
+  @@map("dedup_entries")
+}
+
+model MerchantCategory {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  merchantName    String   @map("merchant_name")
+  walletCategoryId String  @map("wallet_category_id")
+  walletCategoryName String? @map("wallet_category_name")
+  usageCount      Int      @default(1) @map("usage_count")
+  lastUsed        DateTime @default(now()) @map("last_used")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, merchantName])
+  @@map("merchant_categories")
+}
+
+model PortfolioHolding {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  type            String   // 'mutual_fund' | 'stock' | 'nps'
+  name            String
+  code            String   // AMFI code / ISIN / PRAN
+  units           Decimal  @db.Decimal(12, 4)
+  avgCost         Decimal  @map("avg_cost") @db.Decimal(12, 4)
+  currentNav      Decimal  @default(0) @map("current_nav") @db.Decimal(12, 4)
+  currentValue    Decimal  @default(0) @map("current_value") @db.Decimal(14, 2)
+  previousNav     Decimal  @default(0) @map("previous_nav") @db.Decimal(12, 4)
+  walletAccountId String?  @map("wallet_account_id")
+  navUpdatedAt    DateTime? @map("nav_updated_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, code])
+  @@index([userId, type])
+  @@map("portfolio_holdings")
+}
+
+model WalletCategoryCache {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  walletCategoryId String  @map("wallet_category_id")
+  name            String
+  groupId         String   @map("group_id")
+  groupName       String   @map("group_name")
+  parentId        String?  @map("parent_id")
+  isCustom        Boolean  @default(false) @map("is_custom")
+  syncedAt        DateTime @default(now()) @map("synced_at")
+
+  @@unique([userId, walletCategoryId])
+  @@index([userId])
+  @@map("wallet_category_cache")
+}
