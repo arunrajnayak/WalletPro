@@ -1,5 +1,5 @@
 import 'package:flutter/services.dart';
-import '../parsers/sms_parser.dart';
+import '../../parsers/sms_parser.dart';
 import '../remote/api_client.dart';
 
 class SmsReaderService {

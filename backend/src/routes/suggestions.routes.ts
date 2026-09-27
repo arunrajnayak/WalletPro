@@ -132,9 +132,16 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   // Auto-match Wallet account if accountLast4 matches a mapped account
   let matchedAccountId: string | undefined;
   if (parsed.accountLast4) {
-    const matchedAccount = await prisma.walletAccount.findFirst({
-      where: { userId, last4Digits: parsed.accountLast4, isActive: true },
+    const activeMappedAccounts = await prisma.walletAccount.findMany({
+      where: { userId, isActive: true, last4Digits: { not: null } },
     });
+
+    const matchedAccount = activeMappedAccounts.find((acc) => {
+      if (!acc.last4Digits) return false;
+      const digitsList = acc.last4Digits.split(/[,;\s]+/).map((s) => s.trim());
+      return digitsList.includes(parsed.accountLast4) || acc.last4Digits === parsed.accountLast4;
+    });
+
     if (matchedAccount) {
       matchedAccountId = matchedAccount.walletAccountId;
     }

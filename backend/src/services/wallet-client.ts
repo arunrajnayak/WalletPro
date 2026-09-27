@@ -86,12 +86,52 @@ export class WalletClient {
   }
 
   /**
-   * List user's accounts
+   * List user's accounts (single page)
    */
   public async getAccounts(params?: { limit?: number; offset?: number; archived?: boolean }): Promise<any[]> {
     const res = await this.client.get('/accounts', { params });
     // In OpenAPI v2.0, accounts are returned directly or under an envelope
     return Array.isArray(res.data) ? res.data : (res.data.accounts || res.data.results || []);
+  }
+
+  /**
+   * Fetch all user's accounts across all pages from BudgetBakers Wallet
+   */
+  public async getAllAccounts(options?: { archived?: boolean }): Promise<any[]> {
+    const allAccounts: any[] = [];
+    const limit = 20; // BudgetBakers Wallet API max account limit per request
+    let offset = 0;
+    let hasMore = true;
+    let page = 0;
+    const maxPages = 50; // Safety cap
+
+    while (hasMore && page < maxPages) {
+      page++;
+      const res = await this.client.get('/accounts', {
+        params: {
+          limit,
+          offset,
+          ...(options?.archived !== undefined ? { archived: options.archived } : {}),
+        },
+      });
+
+      const data = res.data;
+      const accounts: any[] = Array.isArray(data)
+        ? data
+        : (data.accounts || data.results || []);
+
+      allAccounts.push(...accounts);
+
+      if (accounts.length < limit) {
+        hasMore = false;
+      } else if (data && typeof data.nextOffset === 'number') {
+        offset = data.nextOffset;
+      } else {
+        offset += limit;
+      }
+    }
+
+    return allAccounts;
   }
 
   /**

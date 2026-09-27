@@ -5,6 +5,7 @@ class WalletAccount {
   final String accountType;
   final String? last4Digits;
   final double balance;
+  final bool isActive;
 
   const WalletAccount({
     required this.id,
@@ -13,6 +14,7 @@ class WalletAccount {
     required this.accountType,
     this.last4Digits,
     required this.balance,
+    this.isActive = true,
   });
 
   factory WalletAccount.fromJson(Map<String, dynamic> json) => WalletAccount(
@@ -22,6 +24,7 @@ class WalletAccount {
         accountType: json['accountType'] as String? ?? 'General',
         last4Digits: json['last4Digits'] as String?,
         balance: (json['balance'] as num?)?.toDouble() ?? 0.0,
+        isActive: json['isActive'] as bool? ?? true,
       );
 
   Map<String, dynamic> toJson() => {
@@ -31,5 +34,6 @@ class WalletAccount {
         'accountType': accountType,
         'last4Digits': last4Digits,
         'balance': balance,
+        'isActive': isActive,
       };
 }

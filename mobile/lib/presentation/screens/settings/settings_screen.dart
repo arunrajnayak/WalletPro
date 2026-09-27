@@ -382,14 +382,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: Text('No accounts found. Tap "Sync Now" above to load your accounts.'),
                           )
                         else
-                          ..._accounts.map((acc) {
+                          ..._accounts
+                              .where((acc) => acc['isActive'] != false && acc['archived'] != true)
+                              .map((acc) {
                             final last4 = acc['last4Digits'];
+                            final type = (acc['accountType'] ?? 'General').toString();
+                            IconData icon = Icons.account_balance_outlined;
+                            if (type.toLowerCase().contains('credit')) {
+                              icon = Icons.credit_card;
+                            } else if (type.toLowerCase().contains('cash')) {
+                              icon = Icons.payments_outlined;
+                            }
+
                             return ListTile(
                               contentPadding: EdgeInsets.zero,
+                              leading: CircleAvatar(
+                                radius: 16,
+                                backgroundColor: theme.colorScheme.primaryContainer,
+                                child: Icon(icon, size: 16, color: theme.colorScheme.onPrimaryContainer),
+                              ),
                               title: Text(acc['name'] ?? 'Account'),
                               subtitle: Text(
-                                last4 != null ? 'Card / Acct: •••• $last4' : 'No digits mapped',
-                                style: TextStyle(color: last4 != null ? Colors.green : Colors.grey),
+                                last4 != null ? 'Card/Acct: •••• $last4 • $type' : 'No digits mapped • $type',
+                                style: TextStyle(color: last4 != null ? Colors.green.shade700 : Colors.grey),
                               ),
                               trailing: IconButton(
                                 icon: const Icon(Icons.edit, size: 20),

@@ -139,9 +139,14 @@ class ApiClient {
     return res.data as Map<String, dynamic>;
   }
 
-  /// Fetch accounts mapped to user
-  Future<List<dynamic>> getWalletAccounts() async {
-    final res = await _dio.get('/api/wallet/accounts');
+  /// Fetch accounts mapped to user (filters out archived accounts by default)
+  Future<List<dynamic>> getWalletAccounts({bool includeArchived = false}) async {
+    final res = await _dio.get(
+      '/api/wallet/accounts',
+      queryParameters: {
+        if (includeArchived) 'includeArchived': 'true',
+      },
+    );
     return res.data as List<dynamic>;
   }
 

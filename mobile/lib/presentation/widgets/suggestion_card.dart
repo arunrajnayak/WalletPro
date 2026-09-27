@@ -85,44 +85,135 @@ class _SuggestionCardState extends State<SuggestionCard> {
   }
 
   void _openAccountPicker() async {
+    // Filter active accounts only (do not show archived accounts)
+    final activeAccounts = widget.accounts
+        .where((a) => a['isActive'] != false && a['archived'] != true)
+        .toList();
+
     final acc = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                  'Select Wallet Account',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ),
-              Expanded(
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: widget.accounts.length,
-                  itemBuilder: (_, idx) {
-                    final a = widget.accounts[idx];
-                    final isSel = a['walletAccountId'] == _selectedAccountId;
-                    return ListTile(
-                      title: Text(a['name'] ?? 'Account'),
-                      subtitle: Text(
-                        a['last4Digits'] != null ? 'Card/Acct: •••• ${a['last4Digits']}' : (a['accountType'] ?? 'General'),
+        String searchQuery = '';
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final filteredAccounts = activeAccounts.where((a) {
+              if (searchQuery.isEmpty) return true;
+              final q = searchQuery.toLowerCase();
+              final name = (a['name'] ?? '').toString().toLowerCase();
+              final last4 = (a['last4Digits'] ?? '').toString().toLowerCase();
+              final type = (a['accountType'] ?? '').toString().toLowerCase();
+              return name.contains(q) || last4.contains(q) || type.contains(q);
+            }).toList();
+
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.65,
+              padding: const EdgeInsets.only(top: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade400,
+                        borderRadius: BorderRadius.circular(2),
                       ),
-                      trailing: isSel ? const Icon(Icons.check, color: Colors.blue) : null,
-                      onTap: () => Navigator.pop(ctx, a as Map<String, dynamic>),
-                    );
-                  },
-                ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Select Wallet Account',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          '${activeAccounts.length} active',
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (activeAccounts.length > 5)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      child: TextField(
+                        decoration: InputDecoration(
+                          hintText: 'Search active accounts...',
+                          prefixIcon: const Icon(Icons.search, size: 20),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onChanged: (val) {
+                          setModalState(() {
+                            searchQuery = val.trim();
+                          });
+                        },
+                      ),
+                    ),
+                  const Divider(height: 12),
+                  Expanded(
+                    child: filteredAccounts.isEmpty
+                        ? const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(24),
+                              child: Text('No matching active accounts found'),
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: filteredAccounts.length,
+                            itemBuilder: (_, idx) {
+                              final a = filteredAccounts[idx];
+                              final isSel = a['walletAccountId'] == _selectedAccountId;
+                              final type = (a['accountType'] ?? 'General').toString();
+                              IconData icon = Icons.account_balance_outlined;
+                              if (type.toLowerCase().contains('credit')) {
+                                icon = Icons.credit_card;
+                              } else if (type.toLowerCase().contains('cash')) {
+                                icon = Icons.payments_outlined;
+                              }
+
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  radius: 18,
+                                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                                  child: Icon(icon, size: 18, color: Theme.of(context).colorScheme.onPrimaryContainer),
+                                ),
+                                title: Text(
+                                  a['name'] ?? 'Account',
+                                  style: TextStyle(
+                                    fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  a['last4Digits'] != null
+                                      ? 'Mapped: •••• ${a['last4Digits']} • $type'
+                                      : type,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: a['last4Digits'] != null ? Colors.green.shade700 : null,
+                                  ),
+                                ),
+                                trailing: isSel
+                                    ? const Icon(Icons.check_circle, color: Colors.blue)
+                                    : null,
+                                onTap: () => Navigator.pop(ctx, a as Map<String, dynamic>),
+                              );
+                            },
+                          ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
