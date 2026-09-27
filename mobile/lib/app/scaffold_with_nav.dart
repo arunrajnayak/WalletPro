@@ -62,11 +62,6 @@ class ScaffoldWithNestedNavigation extends ConsumerWidget {
             label: 'Review',
           ),
           const NavigationDestination(
-            icon: Icon(Icons.insights_outlined),
-            selectedIcon: Icon(Icons.insights_rounded),
-            label: 'Insights',
-          ),
-          const NavigationDestination(
             icon: Icon(Icons.settings_outlined),
             selectedIcon: Icon(Icons.settings_rounded),
             label: 'Settings',

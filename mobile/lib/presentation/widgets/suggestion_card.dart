@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/utils/date_formatter.dart';
+import '../../core/utils/account_sorter.dart';
 import 'category_picker.dart';
 
 class SuggestionCard extends StatefulWidget {
   final Map<String, dynamic> suggestion;
   final List<dynamic> categories;
   final List<dynamic> accounts;
+  final EdgeInsetsGeometry? margin;
   final Future<void> Function(
     String id, {
     String? walletAccountId,
@@ -24,6 +26,7 @@ class SuggestionCard extends StatefulWidget {
     required this.suggestion,
     required this.categories,
     required this.accounts,
+    this.margin,
     required this.onApprove,
     required this.onReject,
   });
@@ -116,6 +119,8 @@ class _SuggestionCardState extends State<SuggestionCard> {
           return true;
         })
         .toList();
+
+    AccountSorter.sortAccounts(activeAccounts);
 
     final acc = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
@@ -411,13 +416,15 @@ class _SuggestionCardState extends State<SuggestionCard> {
       heroIcon = Icons.arrow_upward_rounded;
     }
 
+    final cardMargin = widget.margin ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 10);
+
     return Dismissible(
       key: Key(widget.suggestion['id']),
       direction: DismissDirection.horizontal,
       background: Container(
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.only(left: 28),
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        margin: cardMargin,
         decoration: BoxDecoration(
           color: const Color(0xFF16A34A),
           borderRadius: BorderRadius.circular(22),
@@ -436,7 +443,7 @@ class _SuggestionCardState extends State<SuggestionCard> {
       secondaryBackground: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 28),
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        margin: cardMargin,
         decoration: BoxDecoration(
           color: const Color(0xFFDC2626),
           borderRadius: BorderRadius.circular(22),
@@ -471,7 +478,7 @@ class _SuggestionCardState extends State<SuggestionCard> {
         return true;
       },
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        margin: cardMargin,
         decoration: BoxDecoration(
           color: theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(22),
@@ -1186,6 +1193,7 @@ class _SuggestionCardState extends State<SuggestionCard> {
                       height: 52,
                       child: OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
                           foregroundColor: isDark ? const Color(0xFFF87171) : const Color(0xFFDC2626),
                           side: BorderSide(
                             color: isDark ? const Color(0xFF7F1D1D) : const Color(0xFFFECACA),
@@ -1199,9 +1207,13 @@ class _SuggestionCardState extends State<SuggestionCard> {
                           ),
                         ),
                         icon: const Icon(Icons.close_rounded, size: 20),
-                        label: const Text(
-                          'Reject',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        label: const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            'Reject',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                            maxLines: 1,
+                          ),
                         ),
                         onPressed: _isProcessing ? null : _handleReject,
                       ),
@@ -1217,6 +1229,7 @@ class _SuggestionCardState extends State<SuggestionCard> {
                       height: 52,
                       child: FilledButton.icon(
                         style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
                           backgroundColor: isTransfer
                               ? const Color(0xFF2563EB)
                               : const Color(0xFF16A34A),
@@ -1239,9 +1252,13 @@ class _SuggestionCardState extends State<SuggestionCard> {
                                 isTransfer ? Icons.swap_horiz_rounded : Icons.check_circle_outline_rounded,
                                 size: 20,
                               ),
-                        label: Text(
-                          isTransfer ? 'Transfer & Sync' : 'Approve & Sync',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        label: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            isTransfer ? 'Transfer & Sync' : 'Approve & Sync',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                            maxLines: 1,
+                          ),
                         ),
                         onPressed: _isProcessing ? null : _handleApprove,
                       ),

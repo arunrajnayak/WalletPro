@@ -160,14 +160,10 @@ router.get('/quickview', authenticate, async (req: Request, res: Response) => {
   try {
     const client = new WalletClient(user.walletApiToken);
 
-    // Fetch accounts, budgets, and recent records
-    const [remoteAccounts, remoteBudgets, recentRecords] = await Promise.all([
+    // Fetch accounts and recent records
+    const [remoteAccounts, recentRecords] = await Promise.all([
       client.getAllAccounts({ archived: false }).catch(err => {
         console.warn('Failed to fetch remote accounts:', err.message);
-        return [];
-      }),
-      client.getBudgets().catch(err => {
-        console.warn('Failed to fetch budgets:', err.message);
         return [];
       }),
       client.getRecords({ limit: 15 }).catch(err => {
@@ -265,7 +261,7 @@ router.get('/quickview', authenticate, async (req: Request, res: Response) => {
         netWorth,
         accountsCount: accountsList.length,
       },
-      budgets: remoteBudgets || [],
+      budgets: [],
       recentRecords: recentRecords || [],
     });
   } catch (err: any) {

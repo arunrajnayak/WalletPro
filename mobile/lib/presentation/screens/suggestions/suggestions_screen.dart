@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/utils/account_sorter.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../data/datasources/local/sms_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
 import '../../providers/pending_count_provider.dart';
+import '../../widgets/skeleton_loader.dart';
 import '../../widgets/suggestion_card.dart';
 
 class SuggestionsScreen extends ConsumerStatefulWidget {
@@ -77,6 +79,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
       final suggestionsRes = futures[0] as List<dynamic>;
       final categoriesRes = futures[1] as List<dynamic>;
       final accountsRes = futures[2] as List<dynamic>;
+      AccountSorter.sortAccounts(accountsRes);
       final profileRes = futures[3] as Map<String, dynamic>;
 
       final prefs = (profileRes['preferences'] as Map<String, dynamic>?) ?? {};
@@ -383,7 +386,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
           // ----------------------------------------------------
           Expanded(
             child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
+                ? const SuggestionListSkeleton()
                 : _error != null
                     ? Center(
                         child: Padding(

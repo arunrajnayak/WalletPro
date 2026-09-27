@@ -6,7 +6,6 @@ import '../presentation/screens/dashboard/dashboard_screen.dart';
 import '../presentation/screens/quickview/quickview_screen.dart';
 import '../presentation/screens/suggestions/suggestions_screen.dart';
 import '../presentation/screens/suggestions/suggestion_detail_screen.dart';
-import '../presentation/screens/insights/insights_screen.dart';
 import '../presentation/screens/settings/settings_screen.dart';
 import '../presentation/screens/onboarding/onboarding_screen.dart';
 
@@ -14,7 +13,6 @@ final _rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorHome = GlobalKey<NavigatorState>(debugLabel: 'shellHome');
 final _shellNavigatorQuickView = GlobalKey<NavigatorState>(debugLabel: 'shellQuickView');
 final _shellNavigatorReview = GlobalKey<NavigatorState>(debugLabel: 'shellReview');
-final _shellNavigatorInsights = GlobalKey<NavigatorState>(debugLabel: 'shellInsights');
 final _shellNavigatorSettings = GlobalKey<NavigatorState>(debugLabel: 'shellSettings');
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -70,18 +68,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             ],
           ),
 
-          // Branch 3: Insights
-          StatefulShellBranch(
-            navigatorKey: _shellNavigatorInsights,
-            routes: [
-              GoRoute(
-                path: '/insights',
-                builder: (context, state) => const InsightsScreen(),
-              ),
-            ],
-          ),
-
-          // Branch 4: Settings
+          // Branch 3: Settings
           StatefulShellBranch(
             navigatorKey: _shellNavigatorSettings,
             routes: [

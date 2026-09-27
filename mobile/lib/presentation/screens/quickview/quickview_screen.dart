@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
+import '../../../core/utils/account_sorter.dart';
 import '../../../data/datasources/remote/api_client.dart';
+import '../../widgets/skeleton_loader.dart';
 
 class QuickViewScreen extends StatefulWidget {
   const QuickViewScreen({super.key});
@@ -11,16 +13,14 @@ class QuickViewScreen extends StatefulWidget {
   State<QuickViewScreen> createState() => _QuickViewScreenState();
 }
 
-class _QuickViewScreenState extends State<QuickViewScreen> with SingleTickerProviderStateMixin {
+class _QuickViewScreenState extends State<QuickViewScreen> {
   final ApiClient _api = ApiClient();
-  late TabController _tabController;
 
   bool _isLoading = true;
   bool _isRefreshing = false;
   String? _errorMessage;
 
   List<dynamic> _accounts = [];
-  List<dynamic> _budgets = [];
   List<dynamic> _recentRecords = [];
   Map<String, dynamic> _summary = {
     'totalAssets': 0.0,
@@ -32,56 +32,7 @@ class _QuickViewScreenState extends State<QuickViewScreen> with SingleTickerProv
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
     _loadQuickViewData();
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  static const List<String> _defaultAccountOrder = [
-    'HDFC sb',
-    'SBI sb',
-    'Cash',
-    'Mutual funds',
-    'Zerodha',
-    'NPS',
-    'Upstox',
-    'EPF',
-    'Amazon Pay',
-    'Flipkart GC',
-    'SBI cashback',
-    'Tata Neu',
-    'HSBC Live+',
-    'Axis Flipkart',
-    'Swiggy HDFC',
-    'Jupiter Edge',
-    'Cred indusind',
-    'Amazon ICICI',
-    'Ola SBI',
-    'IDFC wealth',
-    'Axis Rewards',
-    'PhonePe',
-    'Fastag',
-    'Axis forex',
-    'LIC',
-    'ICICI platinum',
-  ];
-
-  void _sortAccountsList(List<dynamic> accounts) {
-    accounts.sort((a, b) {
-      final nameA = (a['name'] ?? '').toString().trim().toLowerCase();
-      final nameB = (b['name'] ?? '').toString().trim().toLowerCase();
-      final idxA = _defaultAccountOrder.indexWhere((n) => n.trim().toLowerCase() == nameA);
-      final idxB = _defaultAccountOrder.indexWhere((n) => n.trim().toLowerCase() == nameB);
-      if (idxA != -1 && idxB != -1) return idxA - idxB;
-      if (idxA != -1) return -1;
-      if (idxB != -1) return 1;
-      return nameA.compareTo(nameB);
-    });
   }
 
   Future<void> _loadQuickViewData({bool showRefreshing = false}) async {
@@ -95,11 +46,10 @@ class _QuickViewScreenState extends State<QuickViewScreen> with SingleTickerProv
       final data = await _api.getQuickView();
       if (mounted) {
         final accounts = (data['accounts'] as List<dynamic>?) ?? [];
-        _sortAccountsList(accounts);
+        AccountSorter.sortAccounts(accounts);
 
         setState(() {
           _accounts = accounts;
-          _budgets = (data['budgets'] as List<dynamic>?) ?? [];
           _recentRecords = (data['recentRecords'] as List<dynamic>?) ?? [];
           _summary = (data['summary'] as Map<String, dynamic>?) ?? _summary;
           _errorMessage = null;
@@ -669,14 +619,6 @@ class _QuickViewScreenState extends State<QuickViewScreen> with SingleTickerProv
                         },
                       ),
                       ListTile(
-                        leading: const Icon(Icons.insights_outlined, color: Colors.white),
-                        title: const Text('Insights', style: TextStyle(color: Colors.white)),
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          context.push('/insights');
-                        },
-                      ),
-                      ListTile(
                         leading: const Icon(Icons.settings_outlined, color: Colors.white),
                         title: const Text('Settings', style: TextStyle(color: Colors.white)),
                         onTap: () {
@@ -735,31 +677,9 @@ class _QuickViewScreenState extends State<QuickViewScreen> with SingleTickerProv
             onPressed: _isRefreshing ? null : () => _loadQuickViewData(showRefreshing: true),
           ),
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(48),
-          child: Column(
-            children: [
-              TabBar(
-                controller: _tabController,
-                indicatorColor: Colors.white,
-                indicatorWeight: 3,
-                indicatorSize: TabBarIndicatorSize.label,
-                labelColor: Colors.white,
-                unselectedLabelColor: Colors.grey.shade500,
-                labelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                unselectedLabelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.normal),
-                tabs: const [
-                  Tab(text: 'Accounts'),
-                  Tab(text: 'Budgets & Goals'),
-                ],
-              ),
-              const Divider(color: Colors.white12, height: 1),
-            ],
-          ),
-        ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.white))
+          ? const QuickViewSkeleton()
           : _errorMessage != null
               ? Center(
                   child: Padding(
@@ -780,15 +700,7 @@ class _QuickViewScreenState extends State<QuickViewScreen> with SingleTickerProv
                     ),
                   ),
                 )
-              : TabBarView(
-                  controller: _tabController,
-                  children: [
-                    // Tab 1: Accounts View
-                    _buildAccountsTab(cardDarkColor),
-                    // Tab 2: Budgets & Goals View
-                    _buildBudgetsTab(cardDarkColor),
-                  ],
-                ),
+              : _buildAccountsTab(cardDarkColor),
       floatingActionButton: FloatingActionButton(
         backgroundColor: const Color(0xFF64B5F6), // Light blue matching screenshot
         foregroundColor: Colors.white,
@@ -1283,92 +1195,6 @@ class _QuickViewScreenState extends State<QuickViewScreen> with SingleTickerProv
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildBudgetsTab(Color cardDarkColor) {
-    if (_budgets.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.savings_outlined, size: 56, color: Colors.grey.shade600),
-              const SizedBox(height: 16),
-              const Text(
-                'No Budgets Configured',
-                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Set spending limits or goals in BudgetBakers Wallet to monitor them here.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white60, fontSize: 13),
-              ),
-              const SizedBox(height: 20),
-              FilledButton.icon(
-                onPressed: _syncWallet,
-                icon: const Icon(Icons.sync),
-                label: const Text('Refresh Budgets'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _budgets.length,
-      itemBuilder: (context, index) {
-        final b = _budgets[index];
-        final name = b['name'] ?? 'Budget';
-        final limit = (b['limit'] is num) ? (b['limit'] as num).toDouble() : 0.0;
-        final spending = b['spending']?['current'];
-        final spent = (spending?['spent'] is num) ? (spending['spent'] as num).toDouble() : 0.0;
-        final progress = (limit > 0) ? (spent / limit).clamp(0.0, 1.0) : 0.0;
-
-        return Card(
-          color: cardDarkColor,
-          margin: const EdgeInsets.only(bottom: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: Colors.white12),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(name, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                    Text(
-                      '${CurrencyFormatter.formatINR(spent)} / ${CurrencyFormatter.formatINR(limit)}',
-                      style: const TextStyle(color: Colors.white70, fontSize: 13),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                LinearProgressIndicator(
-                  value: progress,
-                  backgroundColor: Colors.white12,
-                  color: progress > 0.9 ? Colors.redAccent : Colors.tealAccent,
-                  minHeight: 6,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '${(progress * 100).toStringAsFixed(0)}% used',
-                  style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 }

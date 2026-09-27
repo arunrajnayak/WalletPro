@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
+import '../../../core/utils/account_sorter.dart';
 import '../../../data/datasources/local/sms_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
 import '../../providers/pending_count_provider.dart';
 import '../../widgets/suggestion_card.dart';
+import '../../widgets/skeleton_loader.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -80,6 +82,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           _lastReviewedDate = revDate;
           _syncStartDate = strtDate;
           _autoAdvance = prefs['autoAdvanceWindow'] ?? true;
+          AccountSorter.sortAccounts(accounts);
           _recentSuggestions = recents;
           _categories = categories;
           _accounts = accounts;
@@ -279,7 +282,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const DashboardSkeleton()
           : RefreshIndicator(
               onRefresh: () => _loadDashboard(forceRefresh: true),
               child: ListView(
@@ -368,9 +371,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   else
                     ..._recentSuggestions.map(
                       (item) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.only(bottom: 6),
                         child: SuggestionCard(
                           key: Key(item['id']),
+                          margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 6),
                           suggestion: item,
                           categories: _categories,
                           accounts: _accounts,
@@ -519,14 +523,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           label: 'QuickView',
           color: const Color(0xFF8B5CF6),
           onTap: () => context.push('/quickview'),
-          theme: theme,
-        ),
-        const SizedBox(width: 10),
-        _buildActionTile(
-          icon: Icons.insights_rounded,
-          label: 'Insights',
-          color: const Color(0xFF10B981),
-          onTap: () => context.push('/insights'),
           theme: theme,
         ),
         const SizedBox(width: 10),
