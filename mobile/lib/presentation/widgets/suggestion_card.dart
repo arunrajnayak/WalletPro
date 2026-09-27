@@ -6,7 +6,15 @@ class SuggestionCard extends StatefulWidget {
   final Map<String, dynamic> suggestion;
   final List<dynamic> categories;
   final List<dynamic> accounts;
-  final Future<void> Function(String id, {String? walletAccountId, String? walletCategoryId, String? walletCategoryName}) onApprove;
+  final Future<void> Function(
+    String id, {
+    String? walletAccountId,
+    String? walletCategoryId,
+    String? walletCategoryName,
+    String? transactionType,
+    bool? isTransfer,
+    String? transferToAccountId,
+  }) onApprove;
   final Future<void> Function(String id) onReject;
 
   const SuggestionCard({
@@ -23,16 +31,24 @@ class SuggestionCard extends StatefulWidget {
 }
 
 class _SuggestionCardState extends State<SuggestionCard> {
+  late String _transactionType;
   String? _selectedCategoryId;
   String? _selectedCategoryName;
   String? _selectedAccountId;
   String? _selectedAccountName;
+  String? _selectedTransferToAccountId;
+  String? _selectedTransferToAccountName;
   bool _showRawText = false;
   bool _isProcessing = false;
 
   @override
   void initState() {
     super.initState();
+    _transactionType = (widget.suggestion['transactionType'] ?? 'expense').toString().toLowerCase();
+    if (_transactionType != 'expense' && _transactionType != 'income' && _transactionType != 'transfer') {
+      _transactionType = 'expense';
+    }
+
     _selectedCategoryId = widget.suggestion['walletCategoryId'];
     _selectedCategoryName = widget.suggestion['walletCategoryName'];
     _selectedAccountId = widget.suggestion['walletAccountId'];
@@ -84,10 +100,19 @@ class _SuggestionCardState extends State<SuggestionCard> {
     }
   }
 
-  void _openAccountPicker() async {
+  void _openAccountPicker({bool isTarget = false}) async {
     // Filter active accounts only (do not show archived accounts)
     final activeAccounts = widget.accounts
         .where((a) => a['isActive'] != false && a['archived'] != true)
+        .where((a) {
+          if (isTarget && _selectedAccountId != null) {
+            return a['walletAccountId'] != _selectedAccountId;
+          }
+          if (!isTarget && _transactionType == 'transfer' && _selectedTransferToAccountId != null) {
+            return a['walletAccountId'] != _selectedTransferToAccountId;
+          }
+          return true;
+        })
         .toList();
 
     final acc = await showModalBottomSheet<Map<String, dynamic>>(
@@ -108,6 +133,12 @@ class _SuggestionCardState extends State<SuggestionCard> {
               final type = (a['accountType'] ?? '').toString().toLowerCase();
               return name.contains(q) || last4.contains(q) || type.contains(q);
             }).toList();
+
+            final title = isTarget
+                ? 'Select Destination Account (To)'
+                : (_transactionType == 'transfer'
+                    ? 'Select Source Account (From)'
+                    : 'Select Wallet Account');
 
             return Container(
               height: MediaQuery.of(context).size.height * 0.65,
@@ -130,9 +161,9 @@ class _SuggestionCardState extends State<SuggestionCard> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Select Wallet Account',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        Text(
+                          title,
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                         Text(
                           '${activeAccounts.length} active',
@@ -172,7 +203,9 @@ class _SuggestionCardState extends State<SuggestionCard> {
                             itemCount: filteredAccounts.length,
                             itemBuilder: (_, idx) {
                               final a = filteredAccounts[idx];
-                              final isSel = a['walletAccountId'] == _selectedAccountId;
+                              final isSel = isTarget
+                                  ? a['walletAccountId'] == _selectedTransferToAccountId
+                                  : a['walletAccountId'] == _selectedAccountId;
                               final type = (a['accountType'] ?? 'General').toString();
                               IconData icon = Icons.account_balance_outlined;
                               if (type.toLowerCase().contains('credit')) {
@@ -220,21 +253,61 @@ class _SuggestionCardState extends State<SuggestionCard> {
 
     if (acc != null) {
       setState(() {
-        _selectedAccountId = acc['walletAccountId'];
-        _selectedAccountName = acc['name'];
+        if (isTarget) {
+          _selectedTransferToAccountId = acc['walletAccountId'];
+          _selectedTransferToAccountName = acc['name'];
+        } else {
+          _selectedAccountId = acc['walletAccountId'];
+          _selectedAccountName = acc['name'];
+        }
       });
     }
   }
 
   Future<void> _handleApprove() async {
     if (_isProcessing) return;
+
+    if (_transactionType == 'transfer') {
+      if (_selectedAccountId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select the source account (From)'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+      if (_selectedTransferToAccountId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select the destination account (To) for transfer'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+      if (_selectedAccountId == _selectedTransferToAccountId) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Source and destination accounts must be different'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+    }
+
     setState(() => _isProcessing = true);
     try {
+      final isTransfer = _transactionType == 'transfer';
       await widget.onApprove(
         widget.suggestion['id'],
         walletAccountId: _selectedAccountId,
-        walletCategoryId: _selectedCategoryId,
-        walletCategoryName: _selectedCategoryName,
+        walletCategoryId: isTransfer ? null : _selectedCategoryId,
+        walletCategoryName: isTransfer ? 'Transfer' : _selectedCategoryName,
+        transactionType: _transactionType,
+        isTransfer: isTransfer,
+        transferToAccountId: isTransfer ? _selectedTransferToAccountId : null,
       );
     } finally {
       if (mounted) setState(() => _isProcessing = false);
@@ -254,7 +327,9 @@ class _SuggestionCardState extends State<SuggestionCard> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isExpense = (widget.suggestion['transactionType'] ?? 'expense').toString().toLowerCase() == 'expense';
+    final isExpense = _transactionType == 'expense';
+    final isIncome = _transactionType == 'income';
+    final isTransfer = _transactionType == 'transfer';
     final amount = double.tryParse(widget.suggestion['amount']?.toString() ?? '0') ?? 0.0;
     final counterParty = widget.suggestion['counterParty'] ?? 'Unknown Merchant';
     final rawText = widget.suggestion['rawText'] ?? '';
@@ -263,6 +338,19 @@ class _SuggestionCardState extends State<SuggestionCard> {
     DateTime? txDate;
     if (widget.suggestion['transactionDate'] != null) {
       txDate = DateTime.tryParse(widget.suggestion['transactionDate'].toString());
+    }
+
+    String amountPrefix;
+    Color amountColor;
+    if (isTransfer) {
+      amountPrefix = '⇄ ';
+      amountColor = Colors.blue.shade700;
+    } else if (isIncome) {
+      amountPrefix = '+';
+      amountColor = Colors.green.shade700;
+    } else {
+      amountPrefix = '-';
+      amountColor = Colors.red.shade700;
     }
 
     return Dismissible(
@@ -301,6 +389,15 @@ class _SuggestionCardState extends State<SuggestionCard> {
       ),
       confirmDismiss: (direction) async {
         if (direction == DismissDirection.startToEnd) {
+          if (isTransfer && _selectedTransferToAccountId == null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Please select destination account before approving transfer'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+            return false;
+          }
           await _handleApprove();
         } else {
           await _handleReject();
@@ -358,58 +455,70 @@ class _SuggestionCardState extends State<SuggestionCard> {
                     ),
                   ),
                   Text(
-                    '${isExpense ? '-' : '+'}₹${amount.toStringAsFixed(2)}',
+                    '$amountPrefix₹${amount.toStringAsFixed(2)}',
                     style: theme.textTheme.titleMedium?.copyWith(
-                      color: isExpense ? Colors.red.shade700 : Colors.green.shade700,
+                      color: amountColor,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                 ],
               ),
 
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
 
-              // Chip Pickers Row (Category & Account)
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
+              // Transaction Type Selector (Expense | Income | Transfer) + Source Badge
+              Row(
                 children: [
-                  // Category Chip
-                  ActionChip(
-                    avatar: Icon(
-                      Icons.category_outlined,
-                      size: 16,
-                      color: _selectedCategoryName != null ? theme.colorScheme.primary : theme.colorScheme.outline,
+                  ChoiceChip(
+                    label: const Text('Expense'),
+                    selected: isExpense,
+                    selectedColor: Colors.red.shade100,
+                    labelStyle: TextStyle(
+                      fontSize: 11,
+                      fontWeight: isExpense ? FontWeight.bold : FontWeight.normal,
+                      color: isExpense ? Colors.red.shade900 : null,
                     ),
-                    label: Text(
-                      _selectedCategoryName ?? 'Select Category',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: _selectedCategoryName != null ? FontWeight.bold : FontWeight.normal,
-                        color: _selectedCategoryName != null ? theme.colorScheme.primary : null,
-                      ),
-                    ),
-                    onPressed: _openCategoryPicker,
+                    visualDensity: VisualDensity.compact,
+                    onSelected: (val) {
+                      if (val) setState(() => _transactionType = 'expense');
+                    },
                   ),
-
-                  // Account Chip
-                  ActionChip(
-                    avatar: Icon(
-                      Icons.account_balance_outlined,
-                      size: 16,
-                      color: _selectedAccountName != null ? theme.colorScheme.primary : theme.colorScheme.outline,
+                  const SizedBox(width: 6),
+                  ChoiceChip(
+                    label: const Text('Income'),
+                    selected: isIncome,
+                    selectedColor: Colors.green.shade100,
+                    labelStyle: TextStyle(
+                      fontSize: 11,
+                      fontWeight: isIncome ? FontWeight.bold : FontWeight.normal,
+                      color: isIncome ? Colors.green.shade900 : null,
                     ),
-                    label: Text(
-                      _selectedAccountName ?? (last4 != null ? 'Acct: •••• $last4' : 'Select Account'),
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: _selectedAccountName != null ? FontWeight.bold : FontWeight.normal,
-                      ),
-                    ),
-                    onPressed: _openAccountPicker,
+                    visualDensity: VisualDensity.compact,
+                    onSelected: (val) {
+                      if (val) setState(() => _transactionType = 'income');
+                    },
                   ),
-
-                  // Source Badge
+                  const SizedBox(width: 6),
+                  ChoiceChip(
+                    avatar: Icon(
+                      Icons.swap_horiz,
+                      size: 14,
+                      color: isTransfer ? Colors.blue.shade900 : null,
+                    ),
+                    label: const Text('Transfer'),
+                    selected: isTransfer,
+                    selectedColor: Colors.blue.shade100,
+                    labelStyle: TextStyle(
+                      fontSize: 11,
+                      fontWeight: isTransfer ? FontWeight.bold : FontWeight.normal,
+                      color: isTransfer ? Colors.blue.shade900 : null,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    onSelected: (val) {
+                      if (val) setState(() => _transactionType = 'transfer');
+                    },
+                  ),
+                  const Spacer(),
                   Chip(
                     visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,
@@ -424,9 +533,174 @@ class _SuggestionCardState extends State<SuggestionCard> {
                 ],
               ),
 
+              // Transfer Accounts Selector Box OR Standard Category & Account Chips
+              if (isTransfer) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.35),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      // FROM (Source) Account
+                      Expanded(
+                        child: InkWell(
+                          onTap: () => _openAccountPicker(isTarget: false),
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surface,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: _selectedAccountId != null
+                                    ? theme.colorScheme.outlineVariant
+                                    : Colors.orange.shade300,
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Icons.arrow_upward, size: 12, color: Colors.red.shade700),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'FROM (Source)',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _selectedAccountName ?? (last4 != null ? '•••• $last4' : 'Select Account'),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: _selectedAccountName != null
+                                        ? theme.colorScheme.onSurface
+                                        : Colors.orange.shade800,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 6),
+                        child: Icon(Icons.arrow_forward_rounded, color: Colors.blue, size: 18),
+                      ),
+                      // TO (Destination) Account
+                      Expanded(
+                        child: InkWell(
+                          onTap: () => _openAccountPicker(isTarget: true),
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surface,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: _selectedTransferToAccountId != null
+                                    ? theme.colorScheme.outlineVariant
+                                    : Colors.orange.shade400,
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Icons.arrow_downward, size: 12, color: Colors.green.shade700),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'TO (Destination)',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _selectedTransferToAccountName ?? 'Select Account',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: _selectedTransferToAccountName != null
+                                        ? theme.colorScheme.onSurface
+                                        : Colors.orange.shade800,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    // Category Chip
+                    ActionChip(
+                      avatar: Icon(
+                        Icons.category_outlined,
+                        size: 16,
+                        color: _selectedCategoryName != null ? theme.colorScheme.primary : theme.colorScheme.outline,
+                      ),
+                      label: Text(
+                        _selectedCategoryName ?? 'Select Category',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: _selectedCategoryName != null ? FontWeight.bold : FontWeight.normal,
+                          color: _selectedCategoryName != null ? theme.colorScheme.primary : null,
+                        ),
+                      ),
+                      onPressed: _openCategoryPicker,
+                    ),
+
+                    // Account Chip
+                    ActionChip(
+                      avatar: Icon(
+                        Icons.account_balance_outlined,
+                        size: 16,
+                        color: _selectedAccountName != null ? theme.colorScheme.primary : theme.colorScheme.outline,
+                      ),
+                      label: Text(
+                        _selectedAccountName ?? (last4 != null ? 'Acct: •••• $last4' : 'Select Account'),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: _selectedAccountName != null ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                      onPressed: () => _openAccountPicker(isTarget: false),
+                    ),
+                  ],
+                ),
+              ],
+
               // Raw SMS preview (toggleable)
               if (rawText.isNotEmpty) ...[
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
                 GestureDetector(
                   onTap: () => setState(() => _showRawText = !_showRawText),
                   child: Row(
@@ -477,7 +751,7 @@ class _SuggestionCardState extends State<SuggestionCard> {
                   const SizedBox(width: 8),
                   FilledButton.icon(
                     style: FilledButton.styleFrom(
-                      backgroundColor: Colors.green.shade700,
+                      backgroundColor: isTransfer ? Colors.blue.shade700 : Colors.green.shade700,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     ),
@@ -487,8 +761,8 @@ class _SuggestionCardState extends State<SuggestionCard> {
                             height: 14,
                             child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                           )
-                        : const Icon(Icons.check, size: 16),
-                    label: const Text('Approve & Sync'),
+                        : Icon(isTransfer ? Icons.swap_horiz : Icons.check, size: 16),
+                    label: Text(isTransfer ? 'Transfer & Sync' : 'Approve & Sync'),
                     onPressed: _isProcessing ? null : _handleApprove,
                   ),
                 ],

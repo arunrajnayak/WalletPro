@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../presentation/screens/dashboard/dashboard_screen.dart';
+import '../presentation/screens/quickview/quickview_screen.dart';
 import '../presentation/screens/suggestions/suggestions_screen.dart';
 import '../presentation/screens/suggestions/suggestion_detail_screen.dart';
 import '../presentation/screens/insights/insights_screen.dart';
@@ -14,6 +15,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/',
         builder: (context, state) => const DashboardScreen(),
+      ),
+      GoRoute(
+        path: '/quickview',
+        builder: (context, state) => const QuickViewScreen(),
       ),
       GoRoute(
         path: '/onboarding',

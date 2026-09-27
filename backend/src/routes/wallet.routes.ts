@@ -49,6 +49,160 @@ router.get('/accounts', authenticate, async (req: Request, res: Response) => {
   res.json(accounts);
 });
 
+// GET /api/wallet/quickview - Return live accounts with balances, colors, total net worth, and budgets
+router.get('/quickview', authenticate, async (req: Request, res: Response) => {
+  const userId = req.user.id;
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+
+  // Get mapped last 4 digits from local DB
+  const localAccounts = await prisma.walletAccount.findMany({
+    where: { userId },
+  });
+  const localMap = new Map(localAccounts.map(a => [a.walletAccountId, a]));
+
+  if (!user || !user.walletApiToken) {
+    const fallbackAccounts = localAccounts
+      .filter(a => a.isActive)
+      .map(a => ({
+        id: a.walletAccountId,
+        walletAccountId: a.walletAccountId,
+        name: a.name,
+        accountType: a.accountType,
+        currencyCode: a.currencyCode,
+        color: null,
+        balance: 0,
+        last4Digits: a.last4Digits,
+        isActive: a.isActive,
+      }));
+
+    return res.json({
+      connected: false,
+      accounts: fallbackAccounts,
+      summary: {
+        totalAssets: 0,
+        totalLiabilities: 0,
+        netWorth: 0,
+        accountsCount: fallbackAccounts.length,
+      },
+      budgets: [],
+      recentRecords: [],
+    });
+  }
+
+  try {
+    const client = new WalletClient(user.walletApiToken);
+
+    // Fetch accounts, budgets, and recent records
+    const [remoteAccounts, remoteBudgets, recentRecords] = await Promise.all([
+      client.getAllAccounts({ archived: false }).catch(err => {
+        console.warn('Failed to fetch remote accounts:', err.message);
+        return [];
+      }),
+      client.getBudgets().catch(err => {
+        console.warn('Failed to fetch budgets:', err.message);
+        return [];
+      }),
+      client.getRecords({ limit: 15, sortBy: ['-recordDate'] }).catch(err => {
+        console.warn('Failed to fetch recent records:', err.message);
+        return [];
+      }),
+    ]);
+
+    let accountsList: any[] = [];
+    if (remoteAccounts.length > 0) {
+      accountsList = remoteAccounts
+        .filter((a: any) => !a.archived)
+        .map((a: any) => {
+          const localAcc = localMap.get(a.id);
+          const rawBal = a.balance?.currentBalance ?? a.balance?.rawCurrentBalance ?? a.balance?.initial ?? 0;
+          const balance = typeof rawBal === 'number' ? rawBal : parseFloat(rawBal) || 0;
+
+          return {
+            id: a.id,
+            walletAccountId: a.id,
+            name: a.name,
+            accountType: a.accountType || 'General',
+            currencyCode: a.currencyCode || a.balance?.currencyCode || 'INR',
+            color: a.color || null,
+            balance: balance,
+            last4Digits: localAcc?.last4Digits || null,
+            isBankSync: a.isBankSync || false,
+            isInvestmentAccount: a.isInvestmentAccount || false,
+            recordCount: a.recordStats?.recordCount ?? 0,
+            archived: a.archived || false,
+          };
+        });
+    } else {
+      accountsList = localAccounts
+        .filter(a => a.isActive)
+        .map(a => ({
+          id: a.walletAccountId,
+          walletAccountId: a.walletAccountId,
+          name: a.name,
+          accountType: a.accountType,
+          currencyCode: a.currencyCode,
+          color: null,
+          balance: 0,
+          last4Digits: a.last4Digits,
+          isBankSync: false,
+          isInvestmentAccount: false,
+          recordCount: 0,
+          archived: false,
+        }));
+    }
+
+    let totalAssets = 0;
+    let totalLiabilities = 0;
+    for (const acc of accountsList) {
+      if (acc.balance >= 0) {
+        totalAssets += acc.balance;
+      } else {
+        totalLiabilities += Math.abs(acc.balance);
+      }
+    }
+    const netWorth = totalAssets - totalLiabilities;
+
+    res.json({
+      connected: true,
+      accounts: accountsList,
+      summary: {
+        totalAssets,
+        totalLiabilities,
+        netWorth,
+        accountsCount: accountsList.length,
+      },
+      budgets: remoteBudgets || [],
+      recentRecords: recentRecords || [],
+    });
+  } catch (err: any) {
+    console.error('Quickview error:', err.message);
+    res.status(500).json({ error: 'Failed to load quickview data', details: err.message });
+  }
+});
+
+// GET /api/wallet/records - Get records from BudgetBakers Wallet
+router.get('/records', authenticate, async (req: Request, res: Response) => {
+  const userId = req.user.id;
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || !user.walletApiToken) {
+    return res.status(400).json({ error: 'Wallet not connected' });
+  }
+
+  try {
+    const client = new WalletClient(user.walletApiToken);
+    const limit = Math.min(Number(req.query.limit) || 20, 50);
+    const accountId = req.query.accountId as string | undefined;
+    const records = await client.getRecords({
+      limit,
+      sortBy: ['-recordDate'],
+      ...(accountId ? { accountId } : {}),
+    });
+    res.json(records);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to fetch records', details: err.message });
+  }
+});
+
 // PATCH /api/wallet/accounts/:id/map-last4 - Map bank account last 4 digits to Wallet account
 router.patch('/accounts/:id/map-last4', authenticate, async (req: Request, res: Response) => {
   const userId = req.user.id;

@@ -114,6 +114,9 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> with SingleTicker
     String? walletAccountId,
     String? walletCategoryId,
     String? walletCategoryName,
+    String? transactionType,
+    bool? isTransfer,
+    String? transferToAccountId,
   }) async {
     try {
       final res = await _api.approveSuggestion(
@@ -121,6 +124,9 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> with SingleTicker
         walletAccountId: walletAccountId,
         walletCategoryId: walletCategoryId,
         walletCategoryName: walletCategoryName,
+        transactionType: transactionType,
+        isTransfer: isTransfer,
+        transferToAccountId: transferToAccountId,
       );
 
       // Check if sliding window auto-advanced

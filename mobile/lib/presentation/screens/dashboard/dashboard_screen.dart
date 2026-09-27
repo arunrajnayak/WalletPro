@@ -85,6 +85,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     String? walletAccountId,
     String? walletCategoryId,
     String? walletCategoryName,
+    String? transactionType,
+    bool? isTransfer,
+    String? transferToAccountId,
   }) async {
     try {
       final res = await _api.approveSuggestion(
@@ -92,6 +95,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         walletAccountId: walletAccountId,
         walletCategoryId: walletCategoryId,
         walletCategoryName: walletCategoryName,
+        transactionType: transactionType,
+        isTransfer: isTransfer,
+        transferToAccountId: transferToAccountId,
       );
 
       if (res['slidingWindowUpdated'] == true && res['newCutoffDate'] != null) {
@@ -355,7 +361,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ],
                   ),
 
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 12),
+
+                  // ----------------------------------------------------
+                  // Wallet Accounts QuickView Banner
+                  // ----------------------------------------------------
+                  Card(
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: BorderSide(color: Colors.blue.shade200),
+                    ),
+                    color: theme.colorScheme.primaryContainer.withOpacity(0.25),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () => context.push('/quickview'),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              backgroundColor: Colors.blueAccent.withOpacity(0.15),
+                              child: const Icon(Icons.grid_view_rounded, color: Colors.blueAccent),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Wallet Accounts QuickView',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                  ),
+                                  Text(
+                                    '${_accounts.length} active accounts • Live balances & grid',
+                                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
 
                   // ----------------------------------------------------
                   // Pending Queue Header
@@ -422,6 +474,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         type: BottomNavigationBarType.fixed,
         items: [
           const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+          const BottomNavigationBarItem(icon: Icon(Icons.grid_view_rounded), label: 'QuickView'),
           BottomNavigationBarItem(
             icon: Badge(
               isLabelVisible: _pendingCount > 0,
@@ -436,12 +489,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         onTap: (index) {
           switch (index) {
             case 1:
-              context.push('/suggestions');
+              context.push('/quickview');
               break;
             case 2:
-              context.push('/insights');
+              context.push('/suggestions');
               break;
             case 3:
+              context.push('/insights');
+              break;
+            case 4:
               context.push('/settings');
               break;
           }

@@ -39,6 +39,12 @@ export interface CreateRecordRequest {
   note?: string;
   labelIds?: string[];
   recordState?: 'reconciled' | 'cleared' | 'uncleared';
+  transfer?: {
+    pairingMode: 'new' | 'existing' | 'unpaired';
+    accountId?: string;
+    recordId?: string;
+    counterAmount?: { value: number; currencyCode: string };
+  };
 }
 
 export interface BatchResult {
@@ -172,11 +178,18 @@ export class WalletClient {
    */
   public async createRecords(records: CreateRecordRequest[]): Promise<BatchResult> {
     // Standardize amount format to { value: number } as required by OpenAPI
-    const formattedRecords = records.map(r => ({
-      ...r,
-      amount: typeof r.amount === 'number' ? { value: r.amount } : r.amount,
-      recordState: r.recordState || 'cleared',
-    }));
+    const formattedRecords = records.map(r => {
+      const formatted: any = {
+        ...r,
+        amount: typeof r.amount === 'number' ? { value: r.amount } : r.amount,
+        recordState: r.recordState || 'cleared',
+      };
+      // BudgetBakers requires categoryId to be omitted when transfer object is present
+      if (r.transfer) {
+        delete formatted.categoryId;
+      }
+      return formatted;
+    });
 
     const res = await this.client.post('/records', formattedRecords);
     return res.data;

@@ -88,6 +88,9 @@ class ApiClient {
     String? walletCategoryId,
     String? walletCategoryName,
     String? note,
+    String? transactionType,
+    bool? isTransfer,
+    String? transferToAccountId,
   }) async {
     final res = await _dio.patch(
       '/api/suggestions/$id/approve',
@@ -96,6 +99,9 @@ class ApiClient {
         if (walletCategoryId != null) 'walletCategoryId': walletCategoryId,
         if (walletCategoryName != null) 'walletCategoryName': walletCategoryName,
         if (note != null) 'note': note,
+        if (transactionType != null) 'transactionType': transactionType,
+        if (isTransfer != null) 'isTransfer': isTransfer,
+        if (transferToAccountId != null) 'transferToAccountId': transferToAccountId,
       },
     );
     return res.data as Map<String, dynamic>;
@@ -169,6 +175,24 @@ class ApiClient {
       data: {'last4Digits': last4Digits},
     );
     return res.data as Map<String, dynamic>;
+  }
+
+  /// Fetch live quickview data (accounts with balances & colors, summary, budgets, recent records)
+  Future<Map<String, dynamic>> getQuickView() async {
+    final res = await _dio.get('/api/wallet/quickview');
+    return res.data as Map<String, dynamic>;
+  }
+
+  /// Fetch records directly from Wallet
+  Future<List<dynamic>> getWalletRecords({int limit = 20, String? accountId}) async {
+    final res = await _dio.get(
+      '/api/wallet/records',
+      queryParameters: {
+        'limit': limit,
+        if (accountId != null) 'accountId': accountId,
+      },
+    );
+    return res.data as List<dynamic>;
   }
 
   // ----------------------------------------------------

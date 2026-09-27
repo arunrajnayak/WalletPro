@@ -225,7 +225,15 @@ async function advanceSlidingWindowIfNeeded(userId: string, transactionDate: Dat
 router.patch('/:id/approve', authenticate, async (req: Request, res: Response) => {
   const userId = req.user.id;
   const id = req.params.id as string;
-  const { walletAccountId, walletCategoryId, walletCategoryName, note } = req.body;
+  const {
+    walletAccountId,
+    walletCategoryId,
+    walletCategoryName,
+    note,
+    transactionType,
+    isTransfer,
+    transferToAccountId,
+  } = req.body;
 
   const suggestion = await prisma.suggestion.findUnique({ where: { id } });
   if (!suggestion || suggestion.userId !== userId) {
@@ -235,6 +243,7 @@ router.patch('/:id/approve', authenticate, async (req: Request, res: Response) =
   const user = await prisma.user.findUnique({ where: { id: userId } });
   const finalAccountId = walletAccountId || suggestion.walletAccountId;
   const finalCategoryId = walletCategoryId || suggestion.walletCategoryId;
+  const isTransferTx = isTransfer === true || transactionType === 'transfer';
 
   let walletRecordId: string | undefined;
   let syncStatus = 'approved';
@@ -243,18 +252,37 @@ router.patch('/:id/approve', authenticate, async (req: Request, res: Response) =
   if (user?.walletApiToken && finalAccountId) {
     try {
       const client = new WalletClient(user.walletApiToken);
-      const isExpense = suggestion.transactionType === 'expense';
-      const signedAmount = isExpense ? -Number(suggestion.amount) : Number(suggestion.amount);
 
-      const recordReq = {
-        accountId: finalAccountId,
-        amount: signedAmount,
-        recordDate: suggestion.transactionDate.toISOString(),
-        categoryId: finalCategoryId || undefined,
-        counterParty: suggestion.counterParty || undefined,
-        note: note || suggestion.note || (suggestion.referenceNumber ? `Ref: ${suggestion.referenceNumber}` : undefined),
-        recordState: 'cleared' as const,
-      };
+      let recordReq: any;
+      if (isTransferTx && transferToAccountId) {
+        // Paired Transfer between Account A (source) and Account B (target)
+        recordReq = {
+          accountId: finalAccountId,
+          amount: -Math.abs(Number(suggestion.amount)), // Amount leaving source account A
+          recordDate: suggestion.transactionDate.toISOString(),
+          counterParty: suggestion.counterParty || undefined,
+          note: note || suggestion.note || (suggestion.referenceNumber ? `Ref: ${suggestion.referenceNumber}` : undefined),
+          recordState: 'cleared' as const,
+          transfer: {
+            pairingMode: 'new',
+            accountId: transferToAccountId,
+          },
+        };
+      } else {
+        const txType = transactionType || suggestion.transactionType;
+        const isExpense = txType === 'expense';
+        const signedAmount = isExpense ? -Number(suggestion.amount) : Number(suggestion.amount);
+
+        recordReq = {
+          accountId: finalAccountId,
+          amount: signedAmount,
+          recordDate: suggestion.transactionDate.toISOString(),
+          categoryId: finalCategoryId || undefined,
+          counterParty: suggestion.counterParty || undefined,
+          note: note || suggestion.note || (suggestion.referenceNumber ? `Ref: ${suggestion.referenceNumber}` : undefined),
+          recordState: 'cleared' as const,
+        };
+      }
 
       const result = await client.createRecords([recordReq]);
 
@@ -272,10 +300,16 @@ router.patch('/:id/approve', authenticate, async (req: Request, res: Response) =
     where: { id },
     data: {
       status: syncStatus,
+      transactionType: isTransferTx ? 'transfer' : (transactionType || suggestion.transactionType),
       walletAccountId: finalAccountId,
-      walletCategoryId: finalCategoryId,
-      walletCategoryName: walletCategoryName || suggestion.walletCategoryName,
+      walletCategoryId: isTransferTx ? null : finalCategoryId,
+      walletCategoryName: isTransferTx ? 'Transfer' : (walletCategoryName || suggestion.walletCategoryName),
       walletRecordId,
+      parsedData: {
+        ...((suggestion.parsedData as any) || {}),
+        ifTransfer: isTransferTx,
+        transferToAccountId: isTransferTx ? transferToAccountId : undefined,
+      },
       actionedAt: new Date(),
     },
   });
