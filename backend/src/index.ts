@@ -1,13 +1,11 @@
 import app from './app';
 import { env } from './config/env';
-import { startNavWorker } from './workers/nav-worker';
 import { startCleanupWorker } from './workers/cleanup-worker';
 
 const PORT = env.PORT || 3000;
 
 // In local mode (not running as a Vercel serverless function), start background workers
 if (process.env.VERCEL !== '1') {
-  startNavWorker();
   startCleanupWorker();
 }
 

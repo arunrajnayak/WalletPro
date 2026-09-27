@@ -3,7 +3,6 @@ import 'package:go_router/go_router.dart';
 import '../presentation/screens/dashboard/dashboard_screen.dart';
 import '../presentation/screens/suggestions/suggestions_screen.dart';
 import '../presentation/screens/suggestions/suggestion_detail_screen.dart';
-import '../presentation/screens/portfolio/portfolio_screen.dart';
 import '../presentation/screens/insights/insights_screen.dart';
 import '../presentation/screens/settings/settings_screen.dart';
 import '../presentation/screens/onboarding/onboarding_screen.dart';
@@ -30,10 +29,6 @@ final routerProvider = Provider<GoRouter>((ref) {
           final id = state.pathParameters['id']!;
           return SuggestionDetailScreen(suggestionId: id);
         },
-      ),
-      GoRoute(
-        path: '/portfolio',
-        builder: (context, state) => const PortfolioScreen(),
       ),
       GoRoute(
         path: '/insights',

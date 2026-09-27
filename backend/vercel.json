@@ -9,10 +9,6 @@
   ],
   "crons": [
     {
-      "path": "/api/cron/nav",
-      "schedule": "0 11 * * *"
-    },
-    {
       "path": "/api/cron/cleanup",
       "schedule": "0 0 * * *"
     }

@@ -156,24 +156,20 @@ router.delete('/holdings/:id', authenticate, async (req: Request, res: Response)
   res.json({ message: 'Holding deleted' });
 });
 
-// POST /api/portfolio/refresh - Force refresh all holdings from live feeds
-router.post('/refresh', authenticate, async (req: Request, res: Response) => {
-  const userId = req.user.id;
-  
-  await portfolioTracker.refreshAllHoldings(userId);
-  const suggestions = await portfolioTracker.generateValueSuggestions(userId);
-  
+// POST /api/portfolio/refresh - Disabled: Investments handled manually
+router.post('/refresh', authenticate, async (_req: Request, res: Response) => {
   res.json({
-    message: 'Portfolio refreshed',
-    generatedSuggestionsCount: suggestions.length
+    message: 'Investment sync is disabled. Investments are managed manually.',
+    generatedSuggestionsCount: 0,
   });
 });
 
-// POST /api/portfolio/generate-suggestions - Generate suggestions for value changes
-router.post('/generate-suggestions', authenticate, async (req: Request, res: Response) => {
-  const userId = req.user.id;
-  const suggestions = await portfolioTracker.generateValueSuggestions(userId);
-  res.json({ suggestions });
+// POST /api/portfolio/generate-suggestions - Disabled: Investments handled manually
+router.post('/generate-suggestions', authenticate, async (_req: Request, res: Response) => {
+  res.json({
+    message: 'Investment sync is disabled. Investments are managed manually.',
+    suggestions: [],
+  });
 });
 
 export default router;

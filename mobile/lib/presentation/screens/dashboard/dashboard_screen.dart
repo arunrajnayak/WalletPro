@@ -430,7 +430,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             label: 'Review',
           ),
-          const BottomNavigationBarItem(icon: Icon(Icons.pie_chart_outline), label: 'Portfolio'),
           const BottomNavigationBarItem(icon: Icon(Icons.insights_outlined), label: 'Insights'),
           const BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), label: 'Settings'),
         ],
@@ -440,12 +439,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               context.push('/suggestions');
               break;
             case 2:
-              context.push('/portfolio');
-              break;
-            case 3:
               context.push('/insights');
               break;
-            case 4:
+            case 3:
               context.push('/settings');
               break;
           }

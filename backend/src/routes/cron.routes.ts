@@ -1,10 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../prisma';
-import { PortfolioTracker } from '../services/portfolio-tracker';
 import { env } from '../config/env';
 
 const router = Router();
-const portfolioTracker = new PortfolioTracker();
 
 /**
  * Middleware to verify cron requests if CRON_SECRET is set
@@ -21,30 +19,13 @@ const verifyCronSecret = (req: Request, res: Response, next: () => void) => {
 
 /**
  * GET /api/cron/nav
- * Daily cron (e.g. 4:00 PM IST after market close)
- * Refreshes all portfolio holdings (MFs, Stocks, NPS) and generates value suggestions
+ * Disabled: User manages investment tracking manually.
  */
 router.get('/nav', verifyCronSecret, async (_req: Request, res: Response) => {
-  try {
-    const users = await prisma.user.findMany({ select: { id: true } });
-    let totalSuggestions = 0;
-
-    for (const u of users) {
-      await portfolioTracker.refreshAllHoldings(u.id);
-      const suggestions = await portfolioTracker.generateValueSuggestions(u.id);
-      totalSuggestions += suggestions.length;
-    }
-
-    res.json({
-      status: 'ok',
-      message: 'NAV refresh completed',
-      usersProcessed: users.length,
-      suggestionsGenerated: totalSuggestions
-    });
-  } catch (err: any) {
-    console.error('Cron NAV error:', err);
-    res.status(500).json({ error: 'Cron NAV failed', details: err.message });
-  }
+  res.json({
+    status: 'disabled',
+    message: 'Investment / portfolio sync feature is disabled. Investments are managed manually.',
+  });
 });
 
 /**
