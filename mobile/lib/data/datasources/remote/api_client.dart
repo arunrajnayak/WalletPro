@@ -26,6 +26,33 @@ class ApiClient {
   }
 
   // ----------------------------------------------------
+  // User Profile & Preferences (Sliding Window Settings)
+  // ----------------------------------------------------
+
+  /// Fetch user profile and preferences (syncStartDate, lastReviewedDate, etc.)
+  Future<Map<String, dynamic>> getUserProfile() async {
+    final res = await _dio.get('/api/auth/profile');
+    return res.data as Map<String, dynamic>;
+  }
+
+  /// Update user preferences including sliding window cutoff date
+  Future<Map<String, dynamic>> updatePreferences({
+    DateTime? syncStartDate,
+    DateTime? lastReviewedDate,
+    bool? autoAdvanceWindow,
+  }) async {
+    final res = await _dio.patch(
+      '/api/auth/preferences',
+      data: {
+        if (syncStartDate != null) 'syncStartDate': syncStartDate.toIso8601String(),
+        if (lastReviewedDate != null) 'lastReviewedDate': lastReviewedDate.toIso8601String(),
+        if (autoAdvanceWindow != null) 'autoAdvanceWindow': autoAdvanceWindow,
+      },
+    );
+    return res.data as Map<String, dynamic>;
+  }
+
+  // ----------------------------------------------------
   // Suggestions Endpoints
   // ----------------------------------------------------
 

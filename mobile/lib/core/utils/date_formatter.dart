@@ -13,4 +13,8 @@ class DateFormatter {
   static String formatIndian(DateTime date) {
     return DateFormat('dd-MMM-yyyy').format(date);
   }
+
+  static String formatFull(DateTime date) {
+    return DateFormat('dd-MMM-yyyy, hh:mm a').format(date);
+  }
 }
