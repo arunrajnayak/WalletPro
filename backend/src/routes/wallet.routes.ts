@@ -130,6 +130,10 @@ router.get('/quickview', authenticate, async (req: Request, res: Response) => {
             isInvestmentAccount: a.isInvestmentAccount || false,
             recordCount: a.recordStats?.recordCount ?? 0,
             archived: a.archived || false,
+            rawKeys: Object.keys(a),
+            position: (a as any).position,
+            order: (a as any).order,
+            sortOrder: (a as any).sortOrder,
           };
         });
     } else {
