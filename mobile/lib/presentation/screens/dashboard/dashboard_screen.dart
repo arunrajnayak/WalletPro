@@ -25,9 +25,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   bool _isScanning = false;
   int _pendingCount = 0;
   int _approvedCount = 0;
-  DateTime? _lastReviewedDate;
-  DateTime? _syncStartDate;
-  bool _autoAdvance = true;
 
   Map<String, dynamic>? _quickViewData;
   Map<String, dynamic>? _walletProfile;
@@ -55,22 +52,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       ]);
 
       final stats = futures[0] as Map<String, dynamic>;
-      final profile = futures[1] as Map<String, dynamic>;
       final recents = futures[2] as List<dynamic>;
       final categories = futures[3] as List<dynamic>;
       final accounts = futures[4] as List<dynamic>;
       final quickView = futures[5] as Map<String, dynamic>;
       final walletProfile = futures[6] as Map<String, dynamic>;
-
-      final prefs = (profile['preferences'] as Map<String, dynamic>?) ?? {};
-      DateTime? revDate;
-      DateTime? strtDate;
-      if (prefs['lastReviewedDate'] != null) {
-        revDate = DateTime.tryParse(prefs['lastReviewedDate'].toString());
-      }
-      if (prefs['syncStartDate'] != null) {
-        strtDate = DateTime.tryParse(prefs['syncStartDate'].toString());
-      }
 
       final pending = stats['pending'] ?? 0;
       ref.read(pendingCountProvider.notifier).state = pending;
@@ -79,9 +65,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         setState(() {
           _pendingCount = pending;
           _approvedCount = stats['approved'] ?? 0;
-          _lastReviewedDate = revDate;
-          _syncStartDate = strtDate;
-          _autoAdvance = prefs['autoAdvanceWindow'] ?? true;
           AccountSorter.sortAccounts(accounts);
           _recentSuggestions = recents;
           _categories = categories;
@@ -98,6 +81,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     }
   }
 
+  /// Optimistic UI Approve: Removes card instantly and calls API in background.
+  /// Rolls back on failure.
   Future<void> _handleApprove(
     String id, {
     String? walletAccountId,
@@ -107,8 +92,36 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     bool? isTransfer,
     String? transferToAccountId,
   }) async {
+    final index = _recentSuggestions.indexWhere((item) => item['id'] == id);
+    if (index == -1) return;
+    final removedItem = _recentSuggestions[index];
+
+    final updatedPending = (_pendingCount - 1).clamp(0, 9999);
+    ref.read(pendingCountProvider.notifier).state = updatedPending;
+
+    setState(() {
+      _recentSuggestions.removeAt(index);
+      _pendingCount = updatedPending;
+      _approvedCount += 1;
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isTransfer == true || transactionType == 'transfer'
+                ? 'Transfer approved & synced ✓'
+                : 'Approved & synced to Wallet ✓',
+          ),
+          duration: const Duration(seconds: 2),
+          backgroundColor: Colors.green.shade700,
+        ),
+      );
+    }
+
     try {
-      final res = await _api.approveSuggestion(
+      await _api.approveSuggestion(
         id,
         walletAccountId: walletAccountId,
         walletCategoryId: walletCategoryId,
@@ -117,69 +130,75 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         isTransfer: isTransfer,
         transferToAccountId: transferToAccountId,
       );
-
-      if (res['slidingWindowUpdated'] == true && res['newCutoffDate'] != null) {
-        final newCutoff = DateTime.tryParse(res['newCutoffDate'].toString());
-        if (newCutoff != null) {
-          setState(() => _lastReviewedDate = newCutoff);
-        }
-      }
-
-      final updatedPending = (_pendingCount - 1).clamp(0, 9999);
-      ref.read(pendingCountProvider.notifier).state = updatedPending;
-
-      setState(() {
-        _recentSuggestions.removeWhere((item) => item['id'] == id);
-        _pendingCount = updatedPending;
-        _approvedCount += 1;
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Approved & Synced to Wallet!'),
-            duration: Duration(seconds: 2),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
+        setState(() {
+          if (index <= _recentSuggestions.length) {
+            _recentSuggestions.insert(index, removedItem);
+          } else {
+            _recentSuggestions.add(removedItem);
+          }
+          _pendingCount = (_pendingCount + 1).clamp(0, 9999);
+          _approvedCount = (_approvedCount - 1).clamp(0, 9999);
+        });
+        ref.read(pendingCountProvider.notifier).state = _pendingCount;
+
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Approval failed: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Approval failed: $e'),
+            backgroundColor: Colors.red.shade700,
+          ),
         );
       }
     }
   }
 
+  /// Optimistic UI Reject: Removes card instantly and calls API in background.
+  /// Rolls back on failure.
   Future<void> _handleReject(String id) async {
+    final index = _recentSuggestions.indexWhere((item) => item['id'] == id);
+    if (index == -1) return;
+    final removedItem = _recentSuggestions[index];
+
+    final updatedPending = (_pendingCount - 1).clamp(0, 9999);
+    ref.read(pendingCountProvider.notifier).state = updatedPending;
+
+    setState(() {
+      _recentSuggestions.removeAt(index);
+      _pendingCount = updatedPending;
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Suggestion rejected'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+
     try {
-      final res = await _api.rejectSuggestion(id);
-
-      if (res['slidingWindowUpdated'] == true && res['newCutoffDate'] != null) {
-        final newCutoff = DateTime.tryParse(res['newCutoffDate'].toString());
-        if (newCutoff != null) {
-          setState(() => _lastReviewedDate = newCutoff);
-        }
-      }
-
-      final updatedPending = (_pendingCount - 1).clamp(0, 9999);
-      ref.read(pendingCountProvider.notifier).state = updatedPending;
-
-      setState(() {
-        _recentSuggestions.removeWhere((item) => item['id'] == id);
-        _pendingCount = updatedPending;
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Suggestion rejected'), duration: Duration(seconds: 2)),
-        );
-      }
+      await _api.rejectSuggestion(id);
     } catch (e) {
       if (mounted) {
+        setState(() {
+          if (index <= _recentSuggestions.length) {
+            _recentSuggestions.insert(index, removedItem);
+          } else {
+            _recentSuggestions.add(removedItem);
+          }
+          _pendingCount = (_pendingCount + 1).clamp(0, 9999);
+        });
+        ref.read(pendingCountProvider.notifier).state = _pendingCount;
+
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Reject failed: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Reject failed: $e'),
+            backgroundColor: Colors.red.shade700,
+          ),
         );
       }
     }
@@ -187,10 +206,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   Future<void> _scanSmsInbox() async {
     setState(() => _isScanning = true);
-    final effectiveCutoff = _lastReviewedDate ?? _syncStartDate;
     try {
       final summary = await _smsReader.scanAndSyncInbox(
-        sinceDate: effectiveCutoff,
         apiClient: _api,
       );
       await _loadDashboard(forceRefresh: true);
@@ -200,9 +217,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             content: Text(
               summary['created']! > 0
                   ? 'Found ${summary['created']} new transactions (scanned ${summary['scanned']} SMS)!'
-                  : 'Scanned ${summary['scanned']} SMS • No new transactions found.',
+                  : 'Scanned ${summary['scanned']} SMS from Sep 1, 2026 • No new transactions.',
             ),
             duration: const Duration(seconds: 3),
+            backgroundColor: Colors.green.shade700,
           ),
         );
       }
@@ -221,7 +239,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final effectiveCutoff = _lastReviewedDate ?? _syncStartDate;
 
     final netWorth = (_quickViewData?['summary']?['netWorth'] as num?)?.toDouble() ?? 0.0;
     final totalAssets = (_quickViewData?['summary']?['totalAssets'] as num?)?.toDouble() ?? 0.0;
@@ -298,8 +315,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
                   const SizedBox(height: 16),
 
-                  // 3. SMS Cutoff & Scan Banner
-                  _buildSmsCutoffCard(effectiveCutoff, theme, isDark),
+                  // 3. SMS Detection & Scan Banner
+                  _buildSmsScanCard(theme, isDark),
 
                   const SizedBox(height: 16),
 
@@ -576,7 +593,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildSmsCutoffCard(DateTime? effectiveCutoff, ThemeData theme, bool isDark) {
+  Widget _buildSmsScanCard(ThemeData theme, bool isDark) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -592,28 +609,31 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.history_rounded, size: 18, color: theme.colorScheme.primary),
-                  const SizedBox(width: 6),
-                  const Text('SMS Detection Window', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  Icon(Icons.sms_rounded, size: 18, color: theme.colorScheme.primary),
+                  const SizedBox(width: 8),
+                  const Text('SMS Sync & Detection', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                 ],
               ),
-              TextButton(
-                onPressed: () => context.push('/settings'),
-                style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
-                child: const Text('Settings'),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'From 1 Sep 2026',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
-            effectiveCutoff != null
-                ? 'Reviewing transactions from ${DateFormatter.formatDate(effectiveCutoff)}'
-                : 'No cutoff set (all SMS processed)',
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            _autoAdvance ? 'Cutoff advances automatically upon review.' : 'Auto-advance is paused.',
+            'Scans incoming bank and credit card SMS notifications to automatically create transaction suggestions.',
             style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
           ),
           const SizedBox(height: 12),

@@ -16,11 +16,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _isLoading = true;
   bool _isSyncing = false;
 
-  // Sliding Window Settings
-  DateTime? _lastReviewedDate;
-  DateTime? _syncStartDate;
-  bool _autoAdvanceWindow = true;
-
   // Wallet State
   List<dynamic> _accounts = [];
   bool _walletConnected = false;
@@ -47,22 +42,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final accounts = futures[1] as List<dynamic>;
       final walletProfile = futures[2] as Map<String, dynamic>;
 
-      final prefs = (profile['preferences'] as Map<String, dynamic>?) ?? {};
-
-      DateTime? revDate;
-      DateTime? strtDate;
-      if (prefs['lastReviewedDate'] != null) {
-        revDate = DateTime.tryParse(prefs['lastReviewedDate']);
-      }
-      if (prefs['syncStartDate'] != null) {
-        strtDate = DateTime.tryParse(prefs['syncStartDate']);
-      }
-
       if (mounted) {
         setState(() {
-          _lastReviewedDate = revDate;
-          _syncStartDate = strtDate;
-          _autoAdvanceWindow = prefs['autoAdvanceWindow'] ?? true;
           _walletConnected = profile['walletApiToken'] != null;
           _accounts = accounts;
           _walletProfile = walletProfile;
@@ -76,55 +57,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         );
         setState(() => _isLoading = false);
       }
-    }
-  }
-
-  Future<void> _saveWindowSettings({DateTime? newDate, bool? autoAdvance}) async {
-    try {
-      final res = await _api.updatePreferences(
-        lastReviewedDate: newDate ?? _lastReviewedDate,
-        syncStartDate: newDate ?? _syncStartDate,
-        autoAdvanceWindow: autoAdvance ?? _autoAdvanceWindow,
-      );
-      final prefs = (res['preferences'] as Map<String, dynamic>?) ?? {};
-      if (mounted) {
-        setState(() {
-          if (prefs['lastReviewedDate'] != null) {
-            _lastReviewedDate = DateTime.tryParse(prefs['lastReviewedDate']);
-          }
-          if (autoAdvance != null) {
-            _autoAdvanceWindow = autoAdvance;
-          }
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Detection window updated successfully')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update window: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _pickDate() async {
-    final now = DateTime.now();
-    final initialDate = _lastReviewedDate ?? _syncStartDate ?? now;
-
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initialDate.isAfter(now) ? now : initialDate,
-      firstDate: DateTime(2020),
-      lastDate: now,
-      helpText: 'SELECT DETECTION START DATE',
-      confirmText: 'SET START DATE',
-    );
-
-    if (picked != null) {
-      final startOfDay = DateTime(picked.year, picked.month, picked.day);
-      await _saveWindowSettings(newDate: startOfDay);
     }
   }
 
@@ -269,7 +201,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final currentThemeMode = ref.watch(themeModeProvider);
-    final effectiveCutoff = _lastReviewedDate ?? _syncStartDate;
 
     final rateLimit = _walletProfile?['rateLimit'] as Map<String, dynamic>?;
     final remainingCalls = rateLimit?['remaining'] ?? 0;
@@ -444,7 +375,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                 const SizedBox(height: 16),
 
-                // 3. Sliding Window / Detection Date Card
+                // 3. SMS Detection Settings Card
                 Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
@@ -452,59 +383,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Row(
                     children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 16,
-                            backgroundColor: theme.colorScheme.primaryContainer,
-                            child: Icon(Icons.history_toggle_off, size: 16, color: theme.colorScheme.primary),
-                          ),
-                          const SizedBox(width: 10),
-                          const Text('Detection Window (Sliding Filter)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        ],
+                      CircleAvatar(
+                        radius: 18,
+                        backgroundColor: theme.colorScheme.primaryContainer,
+                        child: Icon(Icons.sms_rounded, size: 18, color: theme.colorScheme.primary),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Transactions prior to this date are automatically skipped to avoid processing old historical messages.',
-                        style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
-                      ),
-                      const Divider(height: 24),
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: CircleAvatar(
-                          radius: 18,
-                          backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                          child: const Icon(Icons.calendar_today, size: 18),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'SMS Detection Period',
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              'Active from 1st September 2026',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: theme.colorScheme.primary,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Incoming SMS messages are processed once; reviewed items will never be parsed again.',
+                              style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                            ),
+                          ],
                         ),
-                        title: const Text('Reviewed Up To (Cutoff Date)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                        subtitle: Text(
-                          effectiveCutoff != null
-                              ? DateFormatter.formatFull(effectiveCutoff)
-                              : 'Not set (all transactions processed)',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: effectiveCutoff != null ? theme.colorScheme.primary : null,
-                          ),
-                        ),
-                        trailing: OutlinedButton(
-                          onPressed: _pickDate,
-                          child: const Text('Change'),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Auto-Advance Sliding Window', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                        subtitle: const Text(
-                          'Automatically move the cutoff date forward upon reviewing transactions.',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                        value: _autoAdvanceWindow,
-                        onChanged: (val) => _saveWindowSettings(autoAdvance: val),
                       ),
                     ],
                   ),

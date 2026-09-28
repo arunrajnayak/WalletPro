@@ -13,8 +13,6 @@ model User {
   email           String?
   displayName     String?  @map("display_name")
   walletApiToken  String?  @map("wallet_api_token")
-  gmailRefreshToken String? @map("gmail_refresh_token")
-  gmailHistoryId  String?  @map("gmail_history_id")
   preferences     Json     @default("{}")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
@@ -50,7 +48,7 @@ model WalletAccount {
 model Suggestion {
   id                String   @id @default(uuid())
   userId            String   @map("user_id")
-  source            String   // 'sms' | 'email' | 'portfolio' | 'nps'
+  source            String   // 'sms' | 'portfolio' | 'nps'
   status            String   @default("pending") // 'pending' | 'approved' | 'rejected' | 'synced' | 'expired'
   amount            Decimal  @db.Decimal(12, 2)
   currencyCode      String   @default("INR") @map("currency_code")
@@ -78,6 +76,7 @@ model Suggestion {
   @@index([userId, status])
   @@index([userId, transactionDate])
   @@index([userId, source, status])
+  @@index([userId, sourceId])
   @@map("suggestions")
 }
 
@@ -88,7 +87,7 @@ model DedupEntry {
   amount          Decimal  @db.Decimal(12, 2)
   accountLast4    String?  @map("account_last4")
   transactionDate DateTime @map("transaction_date")
-  source          String   // 'sms' | 'email' | 'wallet'
+  source          String   // 'sms' | 'wallet'
   suggestionId    String?  @map("suggestion_id")
   hash            String   // SHA-256 hash for fast lookup
   createdAt       DateTime @default(now()) @map("created_at")

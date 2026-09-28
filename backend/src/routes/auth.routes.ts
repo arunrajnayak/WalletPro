@@ -29,10 +29,9 @@ router.get('/profile', authenticate, async (req: Request, res: Response) => {
   res.json(fullUser);
 });
 
-// PATCH /api/auth/preferences - Update user preferences (sliding window, sync start date, etc.)
+// PATCH /api/auth/preferences - Update user preferences
 router.patch('/preferences', authenticate, async (req: Request, res: Response) => {
   const userId = req.user.id;
-  const { syncStartDate, lastReviewedDate, autoAdvanceWindow } = req.body;
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
@@ -40,12 +39,11 @@ router.patch('/preferences', authenticate, async (req: Request, res: Response) =
   }
 
   const existingPrefs = (user.preferences as Record<string, any>) || {};
+  const { syncStartDate, lastReviewedDate, autoAdvanceWindow, ...otherPrefs } = req.body;
 
   const updatedPrefs = {
     ...existingPrefs,
-    ...(syncStartDate !== undefined && { syncStartDate }),
-    ...(lastReviewedDate !== undefined && { lastReviewedDate }),
-    ...(autoAdvanceWindow !== undefined && { autoAdvanceWindow: !!autoAdvanceWindow }),
+    ...otherPrefs,
   };
 
   const updatedUser = await prisma.user.update({

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/utils/account_sorter.dart';
-import '../../../core/utils/date_formatter.dart';
 import '../../../data/datasources/local/sms_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
 import '../../providers/pending_count_provider.dart';
@@ -28,10 +27,6 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
   List<dynamic> _suggestions = [];
   List<dynamic> _categories = [];
   List<dynamic> _accounts = [];
-
-  DateTime? _lastReviewedDate;
-  DateTime? _syncStartDate;
-  bool _autoAdvanceWindow = true;
 
   @override
   void initState() {
@@ -73,39 +68,26 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
         _api.getSuggestions(status: _currentStatusFilter),
         _api.getWalletCategories(),
         _api.getWalletAccounts(),
-        _api.getUserProfile(),
+        _api.getSuggestionStats().catchError((_) => <String, dynamic>{}),
       ]);
 
       final suggestionsRes = futures[0] as List<dynamic>;
       final categoriesRes = futures[1] as List<dynamic>;
       final accountsRes = futures[2] as List<dynamic>;
       AccountSorter.sortAccounts(accountsRes);
-      final profileRes = futures[3] as Map<String, dynamic>;
-
-      final prefs = (profileRes['preferences'] as Map<String, dynamic>?) ?? {};
-      DateTime? revDate;
-      DateTime? strtDate;
-
-      if (prefs['lastReviewedDate'] != null) {
-        revDate = DateTime.tryParse(prefs['lastReviewedDate'].toString());
-      }
-      if (prefs['syncStartDate'] != null) {
-        strtDate = DateTime.tryParse(prefs['syncStartDate'].toString());
-      }
+      final statsRes = futures[3] as Map<String, dynamic>;
 
       if (mounted) {
         setState(() {
           _suggestions = suggestionsRes;
           _categories = categoriesRes;
           _accounts = accountsRes;
-          _lastReviewedDate = revDate;
-          _syncStartDate = strtDate;
-          _autoAdvanceWindow = prefs['autoAdvanceWindow'] ?? true;
           _isLoading = false;
         });
-        if (_currentStatusFilter == 'pending') {
-          ref.read(pendingCountProvider.notifier).state = suggestionsRes.length;
-        }
+
+        final pendingCount = (statsRes['pending'] as int?) ??
+            (_currentStatusFilter == 'pending' ? suggestionsRes.length : ref.read(pendingCountProvider));
+        ref.read(pendingCountProvider.notifier).state = pendingCount;
       }
     } catch (e) {
       if (mounted) {
@@ -117,6 +99,8 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
     }
   }
 
+  /// Optimistic UI Approve: Removes card instantly and calls API in background.
+  /// If API fails, rolls back card to its previous position.
   Future<void> _handleApprove(
     String id, {
     String? walletAccountId,
@@ -126,8 +110,45 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
     bool? isTransfer,
     String? transferToAccountId,
   }) async {
+    final index = _suggestions.indexWhere((item) => item['id'] == id);
+    if (index == -1) return;
+
+    final removedItem = _suggestions[index];
+
+    // 1. Optimistic removal
+    setState(() {
+      _suggestions.removeAt(index);
+    });
+
+    if (_currentStatusFilter == 'pending') {
+      final newCount = (_suggestions.length).clamp(0, 9999);
+      ref.read(pendingCountProvider.notifier).state = newCount;
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                isTransfer == true || transactionType == 'transfer'
+                    ? 'Transfer approved & synced ✓'
+                    : 'Transaction approved & synced ✓',
+              ),
+            ],
+          ),
+          duration: const Duration(seconds: 2),
+          backgroundColor: Colors.green.shade700,
+        ),
+      );
+    }
+
+    // 2. Background API call
     try {
-      final res = await _api.approveSuggestion(
+      await _api.approveSuggestion(
         id,
         walletAccountId: walletAccountId,
         walletCategoryId: walletCategoryId,
@@ -136,41 +157,32 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
         isTransfer: isTransfer,
         transferToAccountId: transferToAccountId,
       );
-
-      // Check if sliding window auto-advanced
-      if (res['slidingWindowUpdated'] == true && res['newCutoffDate'] != null) {
-        final newCutoff = DateTime.tryParse(res['newCutoffDate'].toString());
-        if (newCutoff != null) {
-          setState(() {
-            _lastReviewedDate = newCutoff;
-          });
-        }
-      }
-
-      // Remove from list
-      setState(() {
-        _suggestions.removeWhere((item) => item['id'] == id);
-      });
-      if (_currentStatusFilter == 'pending') {
-        ref.read(pendingCountProvider.notifier).state = _suggestions.length;
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(res['syncedToWallet'] == true
-                ? 'Approved & Synced to BudgetBakers Wallet!'
-                : 'Approved suggestion!'),
-            duration: const Duration(seconds: 2),
-            backgroundColor: Colors.green.shade700,
-          ),
-        );
-      }
     } catch (e) {
+      // 3. Rollback on failure
       if (mounted) {
+        setState(() {
+          if (index <= _suggestions.length) {
+            _suggestions.insert(index, removedItem);
+          } else {
+            _suggestions.add(removedItem);
+          }
+        });
+
+        if (_currentStatusFilter == 'pending') {
+          ref.read(pendingCountProvider.notifier).state = _suggestions.length;
+        }
+
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Approval failed: $e'),
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Approval failed: $e')),
+              ],
+            ),
+            duration: const Duration(seconds: 4),
             backgroundColor: Colors.red.shade700,
           ),
         );
@@ -178,38 +190,53 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
     }
   }
 
+  /// Optimistic UI Reject: Removes card instantly and calls API in background.
+  /// If API fails, rolls back card to its previous position.
   Future<void> _handleReject(String id) async {
+    final index = _suggestions.indexWhere((item) => item['id'] == id);
+    if (index == -1) return;
+
+    final removedItem = _suggestions[index];
+
+    // 1. Optimistic removal
+    setState(() {
+      _suggestions.removeAt(index);
+    });
+
+    if (_currentStatusFilter == 'pending') {
+      final newCount = (_suggestions.length).clamp(0, 9999);
+      ref.read(pendingCountProvider.notifier).state = newCount;
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Suggestion rejected'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+
+    // 2. Background API call
     try {
-      final res = await _api.rejectSuggestion(id);
-
-      // Check if sliding window auto-advanced
-      if (res['slidingWindowUpdated'] == true && res['newCutoffDate'] != null) {
-        final newCutoff = DateTime.tryParse(res['newCutoffDate'].toString());
-        if (newCutoff != null) {
-          setState(() {
-            _lastReviewedDate = newCutoff;
-          });
-        }
-      }
-
-      // Remove from list
-      setState(() {
-        _suggestions.removeWhere((item) => item['id'] == id);
-      });
-      if (_currentStatusFilter == 'pending') {
-        ref.read(pendingCountProvider.notifier).state = _suggestions.length;
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Suggestion rejected'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
+      await _api.rejectSuggestion(id);
     } catch (e) {
+      // 3. Rollback on failure
       if (mounted) {
+        setState(() {
+          if (index <= _suggestions.length) {
+            _suggestions.insert(index, removedItem);
+          } else {
+            _suggestions.add(removedItem);
+          }
+        });
+
+        if (_currentStatusFilter == 'pending') {
+          ref.read(pendingCountProvider.notifier).state = _suggestions.length;
+        }
+
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Reject failed: $e'),
@@ -220,45 +247,10 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
     }
   }
 
-  Future<void> _pickNewCutoffDate() async {
-    final effectiveCutoff = _lastReviewedDate ?? _syncStartDate ?? DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: effectiveCutoff,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-
-    if (picked != null) {
-      try {
-        await _api.updatePreferences(lastReviewedDate: picked);
-        setState(() {
-          _lastReviewedDate = picked;
-        });
-        _loadData();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Cutoff updated to ${DateFormatter.formatDate(picked)}'),
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to update cutoff: $e')),
-          );
-        }
-      }
-    }
-  }
-
   Future<void> _scanSmsInbox() async {
     setState(() => _isScanning = true);
-    final effectiveCutoff = _lastReviewedDate ?? _syncStartDate;
     try {
       final summary = await _smsReader.scanAndSyncInbox(
-        sinceDate: effectiveCutoff,
         apiClient: _api,
       );
       await _loadData();
@@ -268,7 +260,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
             content: Text(
               summary['created']! > 0
                   ? 'Found ${summary['created']} new transactions (scanned ${summary['scanned']} SMS)!'
-                  : 'Scanned ${summary['scanned']} SMS • No new transactions found.',
+                  : 'Scanned ${summary['scanned']} SMS from Sep 1, 2026 • No new transactions.',
             ),
             backgroundColor: Colors.green.shade700,
             duration: const Duration(seconds: 4),
@@ -292,7 +284,8 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final effectiveCutoff = _lastReviewedDate ?? _syncStartDate;
+    final pendingCount = ref.watch(pendingCountProvider);
+    final isApprovedOrRejected = _currentStatusFilter != 'pending';
 
     return Scaffold(
       appBar: AppBar(
@@ -315,75 +308,66 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
                   onPressed: _scanSmsInbox,
                 ),
           IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: 'Window & Wallet Settings',
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Settings',
             onPressed: () => context.push('/settings'),
           ),
         ],
         bottom: TabBar(
           controller: _tabController,
-          tabs: const [
-            Tab(text: 'Pending'),
-            Tab(text: 'Approved'),
-            Tab(text: 'Rejected'),
+          tabs: [
+            Tab(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Pending'),
+                  if (pendingCount > 0) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '$pendingCount',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.onPrimaryContainer,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const Tab(text: 'Approved'),
+            const Tab(text: 'Rejected'),
           ],
         ),
       ),
       body: Column(
         children: [
-          // ----------------------------------------------------
-          // Sliding Window Cutoff Header Banner
-          // ----------------------------------------------------
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primaryContainer.withOpacity(0.4),
-              border: Border(
-                bottom: BorderSide(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
+          // Informational bar for approved / rejected tabs capping at 100
+          if (isApprovedOrRejected && _suggestions.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 14, color: theme.colorScheme.outline),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Showing latest ${_suggestions.length} records sorted by date',
+                    style: TextStyle(fontSize: 11.5, color: theme.colorScheme.outline),
+                  ),
+                ],
               ),
             ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.timelapse,
-                  color: theme.colorScheme.primary,
-                  size: 20,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        effectiveCutoff != null
-                            ? 'Reviewed Up To: ${DateFormatter.formatDate(effectiveCutoff)}'
-                            : 'No cutoff set (all SMS processed)',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.onPrimaryContainer,
-                        ),
-                      ),
-                      Text(
-                        _autoAdvanceWindow ? 'Window sliding automatically on review' : 'Sliding window paused',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onPrimaryContainer.withOpacity(0.7),
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                TextButton(
-                  onPressed: _pickNewCutoffDate,
-                  child: const Text('Adjust'),
-                ),
-              ],
-            ),
-          ),
 
-          // ----------------------------------------------------
           // Content / Suggestions List
-          // ----------------------------------------------------
           Expanded(
             child: _isLoading
                 ? const SuggestionListSkeleton()
@@ -417,22 +401,30 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       Icon(
-                                        Icons.check_circle_outline,
+                                        _currentStatusFilter == 'pending'
+                                            ? Icons.check_circle_outline
+                                            : (_currentStatusFilter == 'approved'
+                                                ? Icons.task_alt
+                                                : Icons.block_outlined),
                                         size: 64,
                                         color: theme.colorScheme.primary.withOpacity(0.5),
                                       ),
                                       const SizedBox(height: 16),
                                       Text(
-                                        'All caught up!',
+                                        _currentStatusFilter == 'pending'
+                                            ? 'All caught up!'
+                                            : (_currentStatusFilter == 'approved'
+                                                ? 'No approved transactions yet'
+                                                : 'No rejected transactions'),
                                         style: theme.textTheme.titleMedium?.copyWith(
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
                                       const SizedBox(height: 8),
                                       Text(
-                                        effectiveCutoff != null
-                                            ? 'No $_currentStatusFilter transactions after ${DateFormatter.formatDate(effectiveCutoff)}'
-                                            : 'No $_currentStatusFilter transactions found.',
+                                        _currentStatusFilter == 'pending'
+                                            ? 'No pending SMS transactions since Sep 1, 2026.'
+                                            : 'Transactions will appear here once reviewed.',
                                         style: theme.textTheme.bodySmall?.copyWith(
                                           color: theme.colorScheme.onSurfaceVariant,
                                         ),

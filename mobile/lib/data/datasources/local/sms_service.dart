@@ -25,10 +25,14 @@ class SmsReaderService {
     }
   }
 
-  /// Read raw SMS messages from Android inbox
-  Future<List<Map<String, dynamic>>> readInbox({DateTime? sinceDate, int limit = 300}) async {
+  // Hardcoded start date: 1st September 2026
+  static final DateTime hardcodedStartDate = DateTime(2026, 9, 1);
+
+  /// Read raw SMS messages from Android inbox (default from 1st September 2026)
+  Future<List<Map<String, dynamic>>> readInbox({DateTime? sinceDate, int limit = 500}) async {
     try {
-      final millis = sinceDate?.millisecondsSinceEpoch ?? 0;
+      final effectiveDate = sinceDate ?? hardcodedStartDate;
+      final millis = effectiveDate.millisecondsSinceEpoch;
       final res = await _channel.invokeListMethod<dynamic>('readInbox', {
         'sinceMillis': millis,
         'limit': limit,
@@ -41,9 +45,8 @@ class SmsReaderService {
     }
   }
 
-  /// High-level function: scan inbox, parse bank transactions, and send them to backend
+  /// High-level function: scan inbox from 1st September 2026, parse bank transactions, and send them to backend
   Future<Map<String, int>> scanAndSyncInbox({
-    DateTime? sinceDate,
     required ApiClient apiClient,
     void Function(int current, int total)? onProgress,
   }) async {
@@ -55,7 +58,7 @@ class SmsReaderService {
       }
     }
 
-    final rawMessages = await readInbox(sinceDate: sinceDate, limit: 500);
+    final rawMessages = await readInbox(sinceDate: hardcodedStartDate, limit: 500);
     int detected = 0;
     int created = 0;
 
@@ -69,9 +72,22 @@ class SmsReaderService {
         onProgress(i + 1, rawMessages.length);
       }
 
-      final parsed = SmsParser.parse(body, messageDate: msgDate, cutoffDate: sinceDate);
+      if (msgDate.isBefore(hardcodedStartDate)) {
+        continue;
+      }
+
+      final parsed = SmsParser.parse(body, messageDate: msgDate);
       if (parsed != null) {
         detected++;
+        // Transaction date matches SMS received date
+        parsed['transactionDate'] = msgDate.toIso8601String();
+
+        // Pass Android SMS ID as sourceId for deduplication & to avoid re-parsing reviewed SMS
+        final androidMsgId = msg['id']?.toString() ?? msg['_id']?.toString();
+        if (androidMsgId != null && androidMsgId.isNotEmpty) {
+          parsed['sourceId'] = androidMsgId;
+        }
+
         try {
           final res = await apiClient.createSuggestion({
             'text': body,

@@ -8,19 +8,15 @@ class SmsParser {
   static final _balanceRegex = RegExp(r'(?:Avl|Avail(?:able)?)?\s*Bal(?:ance)?\s*[:\s]*(?:INR|Rs\.?)?\s*([\d,]+\.?\d*)', caseSensitive: false);
   static final _merchantRegex = RegExp(r'(?:to\s+vpa|to|at)\s+([A-Za-z0-9\s\.\&\*\-]+?)(?:\s+(?:on|via|UPI|Ref|avl|bal|using|date|\.|\,)|$)', caseSensitive: false);
 
-  /// Check if transaction falls within the active sliding window
-  static bool isWithinDetectionWindow(DateTime transactionDate, DateTime? cutoffDate) {
-    if (cutoffDate == null) return true;
-    return !transactionDate.isBefore(cutoffDate);
-  }
+  // Hardcoded start date: 1st September 2026
+  static final DateTime hardcodedStartDate = DateTime(2026, 9, 1);
 
-  static Map<String, dynamic>? parse(String smsText, {DateTime? messageDate, DateTime? cutoffDate}) {
+  static Map<String, dynamic>? parse(String smsText, {DateTime? messageDate}) {
     try {
       final date = messageDate ?? DateTime.now();
 
-      // Check sliding window filter on-device before parsing
-      if (!isWithinDetectionWindow(date, cutoffDate)) {
-        debugPrint('Ignored SMS: timestamp $date is prior to cutoff $cutoffDate');
+      // Ignore SMS received prior to 1st September 2026
+      if (date.isBefore(hardcodedStartDate)) {
         return null;
       }
 

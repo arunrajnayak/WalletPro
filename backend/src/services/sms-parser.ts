@@ -6,7 +6,7 @@ export interface ParsedTransaction {
   referenceNumber?: string;
   balance?: number;
   transactionDate: Date;
-  source: 'sms' | 'email';
+  source: 'sms';
   rawText: string;
   confidence: number;
   bank?: string;

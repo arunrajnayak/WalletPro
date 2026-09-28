@@ -11,44 +11,38 @@ const smsParser = new SmsParser();
 const dedupEngine = new DedupEngine();
 const categoryAi = new CategoryAI();
 
-/**
- * Returns effective cutoff date based on user preferences.
- * Precedence: lastReviewedDate (sliding window) > syncStartDate.
- */
-function getCutoffDate(prefs: any): Date | null {
-  if (!prefs) return null;
-  const dateStr = prefs.lastReviewedDate || prefs.syncStartDate;
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? null : d;
-}
+// Hardcoded start date: 1st September 2026
+const HARDCODED_START_DATE = new Date('2026-09-01T00:00:00.000Z');
 
-// GET /api/suggestions - List pending suggestions
+// GET /api/suggestions - List suggestions
 router.get('/', authenticate, async (req: Request, res: Response) => {
   const userId = req.user.id;
-  const { status, source, limit = '50', offset = '0', ignoreCutoff } = req.query;
+  const { status, source, limit = '50', offset = '0' } = req.query;
 
   const filters: any = { userId };
-  if (status) filters.status = status as string;
-  if (source) filters.source = source as string;
-
-  // Apply sliding window cutoff to pending suggestions unless explicitly ignored
-  if (ignoreCutoff !== 'true' && (!status || status === 'pending')) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { preferences: true },
-    });
-    const cutoff = getCutoffDate(user?.preferences);
-    if (cutoff) {
-      filters.transactionDate = { gte: cutoff };
+  if (status) {
+    if (status === 'approved') {
+      filters.status = { in: ['approved', 'synced'] };
+    } else {
+      filters.status = status as string;
     }
   }
+  if (source) filters.source = source as string;
+
+  // Filter pending suggestions from 1st September 2026 onwards
+  if (!status || status === 'pending') {
+    filters.transactionDate = { gte: HARDCODED_START_DATE };
+  }
+
+  // Show only last 100 records for approved and rejected tabs sorted by date
+  const isApprovedOrRejected = status === 'approved' || status === 'rejected';
+  const take = isApprovedOrRejected ? 100 : Math.min(parseInt(limit as string, 10) || 50, 100);
 
   const suggestions = await prisma.suggestion.findMany({
     where: filters,
     orderBy: { transactionDate: 'desc' },
-    take: parseInt(limit as string, 10),
-    skip: parseInt(offset as string, 10),
+    take,
+    skip: parseInt(offset as string, 10) || 0,
   });
 
   res.json(suggestions);
@@ -101,19 +95,29 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   const transactionDate = new Date(parsed.transactionDate || date || Date.now());
   const amount = Number(parsed.amount);
 
-  // Check Sliding Window / Start Date Cutoff
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { preferences: true },
-  });
-  const cutoff = getCutoffDate(user?.preferences);
-  if (cutoff && transactionDate < cutoff) {
+  // Check 1st September 2026 start date cutoff
+  if (transactionDate < HARDCODED_START_DATE) {
     return res.status(200).json({
       ignored: true,
-      reason: 'Transaction date is prior to sliding window cutoff date',
+      reason: 'Transaction date is prior to 1st September 2026',
       transactionDate: transactionDate.toISOString(),
-      cutoffDate: cutoff.toISOString(),
+      startDate: HARDCODED_START_DATE.toISOString(),
     });
+  }
+
+  // Once reviewed or created, same SMS should not be parsed again:
+  // If sourceId (Android SMS ID) is provided, check if suggestion already exists
+  if (parsed.sourceId) {
+    const existingBySourceId = await prisma.suggestion.findFirst({
+      where: { userId, sourceId: String(parsed.sourceId) },
+    });
+    if (existingBySourceId) {
+      return res.status(409).json({
+        message: 'SMS message already processed',
+        suggestionId: existingBySourceId.id,
+        status: existingBySourceId.status,
+      });
+    }
   }
 
   // Check duplicate
@@ -160,7 +164,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   const suggestion = await prisma.suggestion.create({
     data: {
       userId,
-      source: source || 'sms',
+      source: 'sms',
       amount,
       currencyCode: parsed.currencyCode || 'INR',
       transactionType: parsed.transactionType || 'expense',
@@ -171,7 +175,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       walletCategoryId: aiSuggestion.categoryId,
       walletCategoryName: aiSuggestion.categoryName,
       rawText: parsed.rawText || text,
-      sourceId: parsed.sourceId,
+      sourceId: parsed.sourceId ? String(parsed.sourceId) : undefined,
       transactionDate,
       aiConfidence: aiSuggestion.confidence,
       aiSuggestedCategory: aiSuggestion.categoryId,
@@ -183,7 +187,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     userId,
     transactionDate,
     amount,
-    source || 'sms',
+    'sms',
     parsed.referenceNumber,
     parsed.accountLast4,
     suggestion.id
@@ -191,37 +195,6 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
 
   res.status(201).json(suggestion);
 });
-
-// Helper to advance sliding window
-async function advanceSlidingWindowIfNeeded(userId: string, transactionDate: Date) {
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { preferences: true },
-    });
-    const prefs = (user?.preferences as Record<string, any>) || {};
-    const autoAdvance = prefs.autoAdvanceWindow !== false; // default true
-
-    if (autoAdvance) {
-      const currentCutoff = prefs.lastReviewedDate ? new Date(prefs.lastReviewedDate) : null;
-      if (!currentCutoff || transactionDate > currentCutoff) {
-        await prisma.user.update({
-          where: { id: userId },
-          data: {
-            preferences: {
-              ...prefs,
-              lastReviewedDate: transactionDate.toISOString(),
-            },
-          },
-        });
-        return transactionDate.toISOString();
-      }
-    }
-  } catch (err) {
-    console.error('Error auto-advancing sliding window:', err);
-  }
-  return null;
-}
 
 // PATCH /api/suggestions/:id/approve - Approve and post transaction to BudgetBakers Wallet
 router.patch('/:id/approve', authenticate, async (req: Request, res: Response) => {
@@ -371,15 +344,10 @@ router.patch('/:id/approve', authenticate, async (req: Request, res: Response) =
     );
   }
 
-  // Auto-advance sliding window
-  const newCutoff = await advanceSlidingWindowIfNeeded(userId, suggestion.transactionDate);
-
   res.json({
     suggestion: updated,
     syncedToWallet: syncStatus === 'synced',
     walletRecordId,
-    slidingWindowUpdated: !!newCutoff,
-    newCutoffDate: newCutoff,
   });
 });
 
@@ -398,13 +366,8 @@ router.patch('/:id/reject', authenticate, async (req: Request, res: Response) =>
     data: { status: 'rejected', actionedAt: new Date() },
   });
 
-  // Auto-advance sliding window even on rejection, since transaction was reviewed
-  const newCutoff = await advanceSlidingWindowIfNeeded(userId, suggestion.transactionDate);
-
   res.json({
     suggestion: updated,
-    slidingWindowUpdated: !!newCutoff,
-    newCutoffDate: newCutoff,
   });
 });
 

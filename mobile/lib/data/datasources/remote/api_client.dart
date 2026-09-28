@@ -87,21 +87,13 @@ class ApiClient {
     }
   }
 
-  /// Update user preferences including sliding window cutoff date
-  Future<Map<String, dynamic>> updatePreferences({
-    DateTime? syncStartDate,
-    DateTime? lastReviewedDate,
-    bool? autoAdvanceWindow,
-  }) async {
+  /// Update user preferences (e.g. account order, theme, etc.)
+  Future<Map<String, dynamic>> updatePreferences(Map<String, dynamic> preferences) async {
     _cache.remove('user_profile');
     LocalCache.remove('user_profile');
     final res = await _dio.patch(
       '/api/auth/preferences',
-      data: {
-        if (syncStartDate != null) 'syncStartDate': syncStartDate.toIso8601String(),
-        if (lastReviewedDate != null) 'lastReviewedDate': lastReviewedDate.toIso8601String(),
-        if (autoAdvanceWindow != null) 'autoAdvanceWindow': autoAdvanceWindow,
-      },
+      data: preferences,
     );
     return res.data as Map<String, dynamic>;
   }

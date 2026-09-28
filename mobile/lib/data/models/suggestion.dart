@@ -1,5 +1,5 @@
 enum SuggestionStatus { pending, approved, rejected, synced, expired }
-enum SuggestionSource { sms, email, portfolio, nps }
+enum SuggestionSource { sms, portfolio, nps }
 enum TransactionType { expense, income }
 
 class Suggestion {
