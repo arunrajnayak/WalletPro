@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/utils/account_sorter.dart';
 import '../../../data/datasources/local/notification_service.dart';
 import '../../../data/datasources/local/sms_service.dart';
@@ -8,6 +9,7 @@ import '../../../data/datasources/remote/api_client.dart';
 import '../../providers/pending_count_provider.dart';
 import '../../widgets/skeleton_loader.dart';
 import '../../widgets/suggestion_card.dart';
+import '../../widgets/swipeable_review_deck.dart';
 
 class SuggestionsScreen extends ConsumerStatefulWidget {
   const SuggestionsScreen({super.key});
@@ -23,6 +25,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
 
   bool _isLoading = true;
   bool _isScanning = false;
+  bool _isDeckMode = true;
   String? _error;
 
   List<dynamic> _suggestions = [];
@@ -36,6 +39,13 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         _loadData();
+      }
+    });
+    SharedPreferences.getInstance().then((p) {
+      if (mounted) {
+        setState(() {
+          _isDeckMode = p.getBool('pref_review_deck_mode') ?? true;
+        });
       }
     });
     _loadData();
@@ -253,6 +263,51 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
     }
   }
 
+  /// Undo last review decision: re-inserts the suggestion at the top and calls /reset in background.
+  Future<void> _handleUndo(dynamic restoredItem) async {
+    final id = restoredItem['id'].toString();
+
+    setState(() {
+      _suggestions.insert(0, restoredItem);
+    });
+
+    if (_currentStatusFilter == 'pending') {
+      final newCount = _suggestions.length;
+      ref.read(pendingCountProvider.notifier).state = newCount;
+      NotificationService.updatePendingCount(newCount);
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.replay_rounded, color: Colors.white, size: 18),
+              SizedBox(width: 8),
+              Text('Review decision undone ✓'),
+            ],
+          ),
+          duration: Duration(seconds: 2),
+          backgroundColor: Color(0xFFF59E0B),
+        ),
+      );
+    }
+
+    try {
+      await _api.resetSuggestion(id);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Undo failed on server: $e'),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _scanSmsInbox() async {
     setState(() => _isScanning = true);
     try {
@@ -297,6 +352,15 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
       appBar: AppBar(
         title: const Text('Review Queue'),
         actions: [
+          if (_currentStatusFilter == 'pending')
+            IconButton(
+              icon: Icon(_isDeckMode ? Icons.view_agenda_outlined : Icons.view_carousel_rounded),
+              tooltip: _isDeckMode ? 'Switch to List View' : 'Switch to Swipe Deck',
+              onPressed: () {
+                setState(() => _isDeckMode = !_isDeckMode);
+                SharedPreferences.getInstance().then((p) => p.setBool('pref_review_deck_mode', _isDeckMode));
+              },
+            ),
           _isScanning
               ? const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16),
@@ -373,7 +437,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
               ),
             ),
 
-          // Content / Suggestions List
+          // Content / Suggestions List / Swipe Deck
           Expanded(
             child: _isLoading
                 ? const SuggestionListSkeleton()
@@ -396,75 +460,86 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
                           ),
                         ),
                       )
-                    : _suggestions.isEmpty
-                        ? RefreshIndicator(
+                    : (_currentStatusFilter == 'pending' && _isDeckMode)
+                        ? SwipeableReviewDeck(
+                            suggestions: _suggestions,
+                            categories: _categories,
+                            accounts: _accounts,
+                            onApprove: _handleApprove,
+                            onReject: _handleReject,
+                            onUndo: _handleUndo,
                             onRefresh: _loadData,
-                            child: ListView(
-                              children: [
-                                SizedBox(height: MediaQuery.of(context).size.height * 0.2),
-                                Center(
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        _currentStatusFilter == 'pending'
-                                            ? Icons.check_circle_outline
-                                            : (_currentStatusFilter == 'approved'
-                                                ? Icons.task_alt
-                                                : Icons.block_outlined),
-                                        size: 64,
-                                        color: theme.colorScheme.primary.withOpacity(0.5),
-                                      ),
-                                      const SizedBox(height: 16),
-                                      Text(
-                                        _currentStatusFilter == 'pending'
-                                            ? 'All caught up!'
-                                            : (_currentStatusFilter == 'approved'
-                                                ? 'No approved transactions yet'
-                                                : 'No rejected transactions'),
-                                        style: theme.textTheme.titleMedium?.copyWith(
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        _currentStatusFilter == 'pending'
-                                            ? 'No pending SMS transactions since Sep 1, 2026.'
-                                            : 'Transactions will appear here once reviewed.',
-                                        style: theme.textTheme.bodySmall?.copyWith(
-                                          color: theme.colorScheme.onSurfaceVariant,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 20),
-                                      OutlinedButton.icon(
-                                        icon: const Icon(Icons.refresh),
-                                        label: const Text('Refresh'),
-                                        onPressed: _loadData,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
+                            onScanSms: _scanSmsInbox,
                           )
-                        : RefreshIndicator(
-                            onRefresh: _loadData,
-                            child: ListView.builder(
-                              padding: const EdgeInsets.only(top: 8, bottom: 100),
-                              itemCount: _suggestions.length,
-                              itemBuilder: (context, index) {
-                                final item = _suggestions[index];
-                                return SuggestionCard(
-                                  key: Key(item['id']),
-                                  suggestion: item,
-                                  categories: _categories,
-                                  accounts: _accounts,
-                                  onApprove: _handleApprove,
-                                  onReject: _handleReject,
-                                );
-                              },
-                            ),
-                          ),
+                        : _suggestions.isEmpty
+                            ? RefreshIndicator(
+                                onRefresh: _loadData,
+                                child: ListView(
+                                  children: [
+                                    SizedBox(height: MediaQuery.of(context).size.height * 0.2),
+                                    Center(
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            _currentStatusFilter == 'approved'
+                                                ? Icons.task_alt
+                                                : (_currentStatusFilter == 'rejected'
+                                                    ? Icons.block_outlined
+                                                    : Icons.check_circle_outline),
+                                            size: 64,
+                                            color: theme.colorScheme.primary.withOpacity(0.5),
+                                          ),
+                                          const SizedBox(height: 16),
+                                          Text(
+                                            _currentStatusFilter == 'approved'
+                                                ? 'No approved transactions yet'
+                                                : (_currentStatusFilter == 'rejected'
+                                                    ? 'No rejected transactions'
+                                                    : 'All caught up!'),
+                                            style: theme.textTheme.titleMedium?.copyWith(
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            _currentStatusFilter == 'pending'
+                                                ? 'No pending SMS transactions since Sep 1, 2026.'
+                                                : 'Transactions will appear here once reviewed.',
+                                            style: theme.textTheme.bodySmall?.copyWith(
+                                              color: theme.colorScheme.onSurfaceVariant,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 20),
+                                          OutlinedButton.icon(
+                                            icon: const Icon(Icons.refresh),
+                                            label: const Text('Refresh'),
+                                            onPressed: _loadData,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : RefreshIndicator(
+                                onRefresh: _loadData,
+                                child: ListView.builder(
+                                  padding: const EdgeInsets.only(top: 8, bottom: 100),
+                                  itemCount: _suggestions.length,
+                                  itemBuilder: (context, index) {
+                                    final item = _suggestions[index];
+                                    return SuggestionCard(
+                                      key: Key(item['id']),
+                                      suggestion: item,
+                                      categories: _categories,
+                                      accounts: _accounts,
+                                      onApprove: _handleApprove,
+                                      onReject: _handleReject,
+                                    );
+                                  },
+                                ),
+                              ),
           ),
         ],
       ),

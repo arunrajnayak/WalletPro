@@ -171,6 +171,13 @@ class ApiClient {
     return res.data as Map<String, dynamic>;
   }
 
+  /// Reset a suggestion back to pending (Undo)
+  Future<Map<String, dynamic>> resetSuggestion(String id) async {
+    clearCache();
+    final res = await _dio.patch('/api/suggestions/$id/reset');
+    return res.data as Map<String, dynamic>;
+  }
+
   /// Batch action (approve or reject)
   Future<Map<String, dynamic>> batchSuggestions({
     required String action,

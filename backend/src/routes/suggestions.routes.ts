@@ -371,6 +371,43 @@ router.patch('/:id/reject', authenticate, async (req: Request, res: Response) =>
   });
 });
 
+// PATCH /api/suggestions/:id/reset - Reset suggestion back to pending (Undo)
+router.patch('/:id/reset', authenticate, async (req: Request, res: Response) => {
+  const userId = req.user.id;
+  const id = req.params.id as string;
+
+  const suggestion = await prisma.suggestion.findUnique({ where: { id, userId } });
+  if (!suggestion) {
+    return res.status(404).json({ error: 'Suggestion not found' });
+  }
+
+  // If already synced to Wallet, delete the record from BudgetBakers
+  if (suggestion.walletRecordId) {
+    try {
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (user?.walletApiToken) {
+        const walletClient = new WalletClient(user.walletApiToken);
+        await walletClient.deleteRecords([suggestion.walletRecordId]);
+      }
+    } catch (err) {
+      console.warn('Failed to delete synced wallet record during reset:', err);
+    }
+  }
+
+  const updated = await prisma.suggestion.update({
+    where: { id, userId },
+    data: {
+      status: 'pending',
+      actionedAt: null,
+      walletRecordId: null,
+    },
+  });
+
+  res.json({
+    suggestion: updated,
+  });
+});
+
 // POST /api/suggestions/batch - Batch approve or reject
 router.post('/batch', authenticate, async (req: Request, res: Response) => {
   const userId = req.user.id;
