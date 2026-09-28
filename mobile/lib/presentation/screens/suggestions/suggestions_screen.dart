@@ -85,7 +85,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
           _isLoading = false;
         });
 
-        final pendingCount = (statsRes['pending'] as int?) ??
+        final int pendingCount = (statsRes['pending'] as num?)?.toInt() ??
             (_currentStatusFilter == 'pending' ? suggestionsRes.length : ref.read(pendingCountProvider));
         ref.read(pendingCountProvider.notifier).state = pendingCount;
       }

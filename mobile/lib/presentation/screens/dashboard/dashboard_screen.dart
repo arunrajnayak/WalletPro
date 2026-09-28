@@ -58,7 +58,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       final quickView = futures[5] as Map<String, dynamic>;
       final walletProfile = futures[6] as Map<String, dynamic>;
 
-      final pending = stats['pending'] ?? 0;
+      final int pending = (stats['pending'] as num?)?.toInt() ?? 0;
       ref.read(pendingCountProvider.notifier).state = pending;
 
       if (mounted) {
