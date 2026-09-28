@@ -25,6 +25,8 @@ class UpdateInfo {
     required this.isUpdateAvailable,
   });
 
+  String get latestVersion => version;
+
   factory UpdateInfo.fromJson(Map<String, dynamic> json, {String? currentVersion}) {
     final rawTag = (json['tagName'] ?? json['tag_name'] ?? '').toString();
     final cleanVersion = rawTag.replaceAll(RegExp(r'^v'), '').trim();

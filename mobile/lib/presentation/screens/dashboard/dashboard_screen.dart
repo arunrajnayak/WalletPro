@@ -714,7 +714,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 Row(
                   children: [
                     Text(
-                      'Update v${info.latestVersion} Available',
+                      'Update v${info.version} Available',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
