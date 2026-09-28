@@ -6,6 +6,7 @@ import '../../../core/utils/date_formatter.dart';
 import '../../../core/utils/account_sorter.dart';
 import '../../../data/datasources/local/notification_service.dart';
 import '../../../data/datasources/local/sms_service.dart';
+import '../../../data/datasources/local/update_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
 import '../../providers/app_update_provider.dart';
 import '../../providers/pending_count_provider.dart';
