@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/utils/account_sorter.dart';
+import '../../../data/datasources/local/notification_service.dart';
 import '../../../data/datasources/local/sms_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
 import '../../providers/pending_count_provider.dart';
@@ -88,6 +89,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
         final int pendingCount = (statsRes['pending'] as num?)?.toInt() ??
             (_currentStatusFilter == 'pending' ? suggestionsRes.length : ref.read(pendingCountProvider));
         ref.read(pendingCountProvider.notifier).state = pendingCount;
+        NotificationService.updatePendingCount(pendingCount);
       }
     } catch (e) {
       if (mounted) {
@@ -123,6 +125,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
     if (_currentStatusFilter == 'pending') {
       final newCount = (_suggestions.length).clamp(0, 9999);
       ref.read(pendingCountProvider.notifier).state = newCount;
+      NotificationService.updatePendingCount(newCount);
     }
 
     if (mounted) {
@@ -170,6 +173,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
 
         if (_currentStatusFilter == 'pending') {
           ref.read(pendingCountProvider.notifier).state = _suggestions.length;
+          NotificationService.updatePendingCount(_suggestions.length);
         }
 
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -206,6 +210,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
     if (_currentStatusFilter == 'pending') {
       final newCount = (_suggestions.length).clamp(0, 9999);
       ref.read(pendingCountProvider.notifier).state = newCount;
+      NotificationService.updatePendingCount(newCount);
     }
 
     if (mounted) {
@@ -234,6 +239,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
 
         if (_currentStatusFilter == 'pending') {
           ref.read(pendingCountProvider.notifier).state = _suggestions.length;
+          NotificationService.updatePendingCount(_suggestions.length);
         }
 
         ScaffoldMessenger.of(context).hideCurrentSnackBar();

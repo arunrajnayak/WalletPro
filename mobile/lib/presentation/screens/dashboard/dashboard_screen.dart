@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../core/utils/account_sorter.dart';
+import '../../../data/datasources/local/notification_service.dart';
 import '../../../data/datasources/local/sms_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
 import '../../providers/pending_count_provider.dart';
@@ -36,6 +37,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   void initState() {
     super.initState();
     _loadDashboard();
+    _autoScanOnStartup();
+  }
+
+  Future<void> _autoScanOnStartup() async {
+    try {
+      final hasPerm = await _smsReader.hasPermission();
+      if (hasPerm) {
+        await _smsReader.scanAndSyncInbox(apiClient: _api);
+        if (mounted) {
+          _loadDashboard(forceRefresh: true);
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadDashboard({bool forceRefresh = false}) async {
@@ -60,6 +74,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
       final int pending = (stats['pending'] as num?)?.toInt() ?? 0;
       ref.read(pendingCountProvider.notifier).state = pending;
+      NotificationService.updatePendingCount(pending);
 
       if (mounted) {
         setState(() {
@@ -98,6 +113,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     final updatedPending = (_pendingCount - 1).clamp(0, 9999);
     ref.read(pendingCountProvider.notifier).state = updatedPending;
+    NotificationService.updatePendingCount(updatedPending);
 
     setState(() {
       _recentSuggestions.removeAt(index);
@@ -142,6 +158,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           _approvedCount = (_approvedCount - 1).clamp(0, 9999);
         });
         ref.read(pendingCountProvider.notifier).state = _pendingCount;
+        NotificationService.updatePendingCount(_pendingCount);
 
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -163,6 +180,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     final updatedPending = (_pendingCount - 1).clamp(0, 9999);
     ref.read(pendingCountProvider.notifier).state = updatedPending;
+    NotificationService.updatePendingCount(updatedPending);
 
     setState(() {
       _recentSuggestions.removeAt(index);
@@ -192,6 +210,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           _pendingCount = (_pendingCount + 1).clamp(0, 9999);
         });
         ref.read(pendingCountProvider.notifier).state = _pendingCount;
+        NotificationService.updatePendingCount(_pendingCount);
 
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(

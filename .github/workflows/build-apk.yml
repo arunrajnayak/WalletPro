@@ -41,18 +41,18 @@ jobs:
       - name: Scaffold Android Scaffolding & Install Dependencies
         working-directory: mobile
         run: |
-          # Backup custom MainActivity and AndroidManifest with SMS reading capabilities
-          mkdir -p /tmp/backup
-          cp -f android/app/src/main/kotlin/com/walletpro/walletpro/MainActivity.kt /tmp/backup/MainActivity.kt
+          # Backup custom Kotlin files and AndroidManifest
+          mkdir -p /tmp/backup/kotlin
+          cp -rf android/app/src/main/kotlin/com/walletpro/walletpro/* /tmp/backup/kotlin/
           cp -f android/app/src/main/AndroidManifest.xml /tmp/backup/AndroidManifest.xml
 
           # Cleanly generate Android project files matching Flutter runner version
           rm -rf android
           flutter create --org com.walletpro --project-name walletpro --platforms=android .
 
-          # Restore custom MainActivity and AndroidManifest
+          # Restore custom Kotlin files and AndroidManifest
           mkdir -p android/app/src/main/kotlin/com/walletpro/walletpro
-          cp -f /tmp/backup/MainActivity.kt android/app/src/main/kotlin/com/walletpro/walletpro/MainActivity.kt
+          cp -rf /tmp/backup/kotlin/* android/app/src/main/kotlin/com/walletpro/walletpro/
           cp -f /tmp/backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
 
           chmod +x android/gradlew || true
@@ -79,39 +79,39 @@ jobs:
       - name: Stage APK
         run: |
           mkdir -p releases
-          cp mobile/build/app/outputs/flutter-apk/app-release.apk releases/walletpro-v1.3.0.apk
+          cp mobile/build/app/outputs/flutter-apk/app-release.apk releases/walletpro-v1.4.0.apk
           ls -lh releases/
 
       - name: Upload APK as Workflow Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: walletpro-v1.3.0-apk
-          path: releases/walletpro-v1.3.0.apk
+          name: walletpro-v1.4.0-apk
+          path: releases/walletpro-v1.4.0.apk
           retention-days: 30
 
       - name: Create or Update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v1.3.0"
+          TAG="v1.4.0"
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "Updating existing release $TAG..."
-            gh release upload "$TAG" releases/walletpro-v1.3.0.apk --clobber
+            gh release upload "$TAG" releases/walletpro-v1.4.0.apk --clobber
           else
             echo "Creating new release $TAG..."
-            gh release create "$TAG" releases/walletpro-v1.3.0.apk \
-              --title "WalletPro v1.3.0" \
-              --notes "WalletPro Android Release APK v1.3.0. Features: Hardcoded 1st September 2026 SMS start date; deduplication by Android SMS message ID to prevent reviewed SMS re-processing; Optimistic UI for instant review actions with error rollback; approved & rejected tabs capped at last 100 records sorted by date; email feature completely removed; UI/UX polish across review queue, settings, and home screen."
+            gh release create "$TAG" releases/walletpro-v1.4.0.apk \
+              --title "WalletPro v1.4.0" \
+              --notes "WalletPro Android Release APK v1.4.0. Features: Real-time automatic SMS scanning via broadcast receiver; NotificationListenerService for auto-capturing UPI & bank push notifications; automatic inbox scan on app launch & resume; 4-hour periodic reminder notification for outstanding reviews; settings automation controls."
           fi
 
       - name: Commit APK to Repository
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add releases/walletpro-v1.3.0.apk
+          git add releases/walletpro-v1.4.0.apk
           if git diff --staged --quiet; then
             echo "No changes in APK binary"
           else
-            git commit -m "chore: add pre-built WalletPro v1.3.0 Android APK [skip ci]"
+            git commit -m "chore: add pre-built WalletPro v1.4.0 Android APK [skip ci]"
             git push origin main
           fi
