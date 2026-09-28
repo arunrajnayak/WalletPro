@@ -106,9 +106,9 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
 
     return MaterialApp.router(
       title: 'WalletPro',
-      theme: AppTheme.lightTheme,
+      theme: AppTheme.darkTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: themeMode,
+      themeMode: ThemeMode.dark,
       routerConfig: router,
       debugShowCheckedModeBanner: false,
     );

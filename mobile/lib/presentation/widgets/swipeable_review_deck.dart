@@ -294,15 +294,50 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
                       ),
                     ],
                   ),
-                  if (_sessionApprovedCount > 0 || _sessionRejectedCount > 0)
-                    Text(
-                      '✓ $_sessionApprovedCount   ✕ $_sessionRejectedCount',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.outline,
-                      ),
-                    ),
+                  Row(
+                    children: [
+                      if (_history.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: InkWell(
+                            onTap: _isAnimating ? null : _handleUndo,
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.shade900.withOpacity(0.3),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.amber.shade600, width: 0.8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.replay_rounded, size: 13, color: Colors.amber.shade300),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Undo',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.amber.shade300,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (_sessionApprovedCount > 0 || _sessionRejectedCount > 0)
+                        Text(
+                          '✓ $_sessionApprovedCount   ✕ $_sessionRejectedCount',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -422,47 +457,28 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
           ),
         ),
 
-        // 3. Floating Tinder Action Controls Bar
+        // 3. Floating Tinder Action Controls Bar (Big Thumbs Buttons)
         Padding(
-          padding: const EdgeInsets.fromLTRB(24, 6, 24, 20),
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // ↺ Undo Button
-              _buildActionButton(
-                icon: Icons.replay_rounded,
-                size: 50,
-                iconSize: 24,
-                color: const Color(0xFFF59E0B),
-                bgColor: const Color(0xFFFFFBEB),
-                darkBgColor: const Color(0xFF451A03).withOpacity(0.4),
-                isEnabled: _history.isNotEmpty && !_isAnimating,
-                tooltip: 'Undo last swipe',
-                onTap: _handleUndo,
-              ),
-
-              // ❌ Reject Button (Swipe Left)
-              _buildActionButton(
-                icon: Icons.close_rounded,
-                size: 64,
-                iconSize: 32,
-                color: const Color(0xFFDC2626),
-                bgColor: const Color(0xFFFEF2F2),
-                darkBgColor: const Color(0xFF450A0A).withOpacity(0.5),
-                isEnabled: !_isAnimating,
+              // 👎 Big Thumbs Down Button (Swipe Left / Reject)
+              _buildBigThumbButton(
+                emoji: '👎',
+                fallbackIcon: Icons.thumb_down_rounded,
+                accentColor: const Color(0xFFEF4444),
                 tooltip: 'Reject (Swipe Left)',
                 onTap: () => _completeSwipe(false),
               ),
 
-              // ✅ Approve & Sync Button (Swipe Right)
-              _buildActionButton(
-                icon: topCardState.isTransfer ? Icons.swap_horiz_rounded : Icons.check_rounded,
-                size: 64,
-                iconSize: 32,
-                color: const Color(0xFF16A34A),
-                bgColor: const Color(0xFFF0FDF4),
-                darkBgColor: const Color(0xFF052E16).withOpacity(0.5),
-                isEnabled: !_isAnimating,
+              const SizedBox(width: 36),
+
+              // 👍 Big Thumbs Up Button (Swipe Right / Approve)
+              _buildBigThumbButton(
+                emoji: topCardState.isTransfer ? '⇄' : '👍',
+                fallbackIcon: topCardState.isTransfer ? Icons.swap_horiz_rounded : Icons.thumb_up_rounded,
+                accentColor: const Color(0xFF10B981),
                 tooltip: topCardState.isTransfer ? 'Transfer & Sync (Swipe Right)' : 'Approve & Sync (Swipe Right)',
                 onTap: () => _completeSwipe(true),
               ),
@@ -473,49 +489,57 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
     );
   }
 
-  Widget _buildActionButton({
-    required IconData icon,
-    required double size,
-    required double iconSize,
-    required Color color,
-    required Color bgColor,
-    required Color darkBgColor,
-    required bool isEnabled,
+  Widget _buildBigThumbButton({
+    required String emoji,
+    required IconData fallbackIcon,
+    required Color accentColor,
     required String tooltip,
     required VoidCallback onTap,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Opacity(
-      opacity: isEnabled ? 1.0 : 0.35,
-      child: Tooltip(
-        message: tooltip,
+    final isEnabled = !_isAnimating;
+
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
         child: InkWell(
-          onTap: isEnabled ? onTap : null,
+          onTap: isEnabled
+              ? () {
+                  HapticFeedback.mediumImpact();
+                  onTap();
+                }
+              : null,
           customBorder: const CircleBorder(),
-          child: Container(
-            width: size,
-            height: size,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            width: 76,
+            height: 76,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: isDark ? darkBgColor : bgColor,
+              color: isDark ? const Color(0xFF1E293B) : Colors.white,
               border: Border.all(
-                color: color.withOpacity(isDark ? 0.4 : 0.3),
-                width: 1.5,
+                color: accentColor.withOpacity(0.4),
+                width: 2.0,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: color.withOpacity(isDark ? 0.2 : 0.12),
-                  blurRadius: 10,
-                  spreadRadius: 1,
-                  offset: const Offset(0, 4),
+                  color: accentColor.withOpacity(isDark ? 0.25 : 0.18),
+                  blurRadius: 16,
+                  spreadRadius: 2,
+                  offset: const Offset(0, 6),
+                ),
+                BoxShadow(
+                  color: Colors.black.withOpacity(isDark ? 0.45 : 0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
                 ),
               ],
             ),
             child: Center(
-              child: Icon(
-                icon,
-                color: color,
-                size: iconSize,
+              child: Text(
+                emoji,
+                style: const TextStyle(fontSize: 34),
               ),
             ),
           ),

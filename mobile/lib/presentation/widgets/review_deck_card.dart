@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/utils/date_formatter.dart';
 import '../../core/utils/account_sorter.dart';
+import '../../data/datasources/remote/api_client.dart';
 import 'category_picker.dart';
 
 /// State representation of the card's active form fields
@@ -77,6 +78,7 @@ class ReviewDeckCard extends StatefulWidget {
 }
 
 class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
+  final ApiClient _api = ApiClient();
   late String _transactionType;
   String? _selectedCategoryId;
   String? _selectedCategoryName;
@@ -85,6 +87,7 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
   String? _selectedTransferToAccountId;
   String? _selectedTransferToAccountName;
   bool _showRawText = false;
+  List<Map<String, dynamic>> _recentCategories = [];
 
   ReviewDeckCardState get currentState => ReviewDeckCardState(
         transactionType: _transactionType,
@@ -112,6 +115,21 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
 
   void _notifyStateChanged() {
     widget.onStateChanged?.call(currentState);
+  }
+
+  Future<void> _loadRecentCategoriesForAccount(String? accountId) async {
+    if (accountId == null || accountId.isEmpty) {
+      if (mounted) setState(() => _recentCategories = []);
+      return;
+    }
+    try {
+      final list = await _api.getRecentCategoriesForAccount(accountId);
+      if (mounted && _selectedAccountId == accountId) {
+        setState(() {
+          _recentCategories = list;
+        });
+      }
+    } catch (_) {}
   }
 
   void _initFromSuggestion() {
@@ -160,6 +178,7 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
     }
 
     _notifyStateChanged();
+    _loadRecentCategoriesForAccount(_selectedAccountId);
   }
 
   void _openCategoryPicker() async {
@@ -167,6 +186,7 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
       context,
       categories: widget.categories,
       selectedCategoryId: _selectedCategoryId,
+      recentCategories: _recentCategories,
     );
     if (cat != null) {
       setState(() {
@@ -174,6 +194,9 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
         _selectedCategoryName = cat['name'];
       });
       _notifyStateChanged();
+      if (_selectedAccountId != null && _selectedCategoryId != null && _selectedCategoryName != null) {
+        _api.recordCategoryUsedForAccount(_selectedAccountId!, _selectedCategoryId!, _selectedCategoryName!);
+      }
     }
   }
 
@@ -388,6 +411,9 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
         }
       });
       _notifyStateChanged();
+      if (!isTarget) {
+        _loadRecentCategoriesForAccount(acc['walletAccountId']);
+      }
     }
   }
 
@@ -694,6 +720,107 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
                       isWarning: widget.highlightMissingFields && isCategoryMissing,
                       onTap: _openCategoryPicker,
                     ),
+
+                    // Quick-select chips for recent categories for this account
+                    if (_selectedAccountId != null && _recentCategories.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.flash_on_rounded, size: 12, color: theme.colorScheme.primary),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Frequent for ${_selectedAccountName ?? "account"}:',
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 5),
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              physics: const BouncingScrollPhysics(),
+                              child: Row(
+                                children: _recentCategories.take(5).map((cat) {
+                                  final isSel = cat['id'] == _selectedCategoryId;
+                                  return Padding(
+                                    padding: const EdgeInsets.only(right: 6),
+                                    child: InkWell(
+                                      onTap: () {
+                                        HapticFeedback.selectionClick();
+                                        setState(() {
+                                          _selectedCategoryId = cat['id'];
+                                          _selectedCategoryName = cat['name'];
+                                        });
+                                        _notifyStateChanged();
+                                        if (_selectedAccountId != null) {
+                                          _api.recordCategoryUsedForAccount(
+                                            _selectedAccountId!,
+                                            cat['id'],
+                                            cat['name'],
+                                          );
+                                        }
+                                      },
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: AnimatedContainer(
+                                        duration: const Duration(milliseconds: 150),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                        decoration: BoxDecoration(
+                                          color: isSel
+                                              ? const Color(0xFF8B5CF6)
+                                              : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9)),
+                                          borderRadius: BorderRadius.circular(10),
+                                          border: Border.all(
+                                            color: isSel
+                                                ? const Color(0xFFA78BFA)
+                                                : (isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
+                                            width: isSel ? 1.4 : 0.8,
+                                          ),
+                                          boxShadow: isSel
+                                              ? [
+                                                  BoxShadow(
+                                                    color: const Color(0xFF8B5CF6).withOpacity(0.3),
+                                                    blurRadius: 6,
+                                                    offset: const Offset(0, 2),
+                                                  ),
+                                                ]
+                                              : null,
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            if (isSel) ...[
+                                              const Icon(Icons.check_rounded, size: 12, color: Colors.white),
+                                              const SizedBox(width: 4),
+                                            ],
+                                            Text(
+                                              cat['name'] ?? 'Category',
+                                              style: TextStyle(
+                                                fontSize: 11.5,
+                                                fontWeight: isSel ? FontWeight.bold : FontWeight.w600,
+                                                color: isSel ? Colors.white : (isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569)),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
                     const SizedBox(height: 10),
                     _buildSelectionTile(
                       icon: Icons.account_balance_wallet_rounded,

@@ -252,7 +252,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final currentThemeMode = ref.watch(themeModeProvider);
     final accounts = ref.watch(walletAccountsProvider);
     final updateState = ref.watch(appUpdateProvider);
 
@@ -373,63 +372,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                 const SizedBox(height: 16),
 
-                // 2. App Theme Mode Preference Card
-                Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surface,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 16,
-                            backgroundColor: theme.colorScheme.secondaryContainer,
-                            child: Icon(Icons.palette_outlined, size: 16, color: theme.colorScheme.secondary),
-                          ),
-                          const SizedBox(width: 10),
-                          const Text('App Appearance', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          _buildThemeOption(
-                            label: 'System',
-                            icon: Icons.brightness_auto,
-                            isSelected: currentThemeMode == ThemeMode.system,
-                            onTap: () => ref.read(themeModeProvider.notifier).setThemeMode(ThemeMode.system),
-                            theme: theme,
-                          ),
-                          const SizedBox(width: 8),
-                          _buildThemeOption(
-                            label: 'Light',
-                            icon: Icons.light_mode_outlined,
-                            isSelected: currentThemeMode == ThemeMode.light,
-                            onTap: () => ref.read(themeModeProvider.notifier).setThemeMode(ThemeMode.light),
-                            theme: theme,
-                          ),
-                          const SizedBox(width: 8),
-                          _buildThemeOption(
-                            label: 'Dark',
-                            icon: Icons.dark_mode_outlined,
-                            isSelected: currentThemeMode == ThemeMode.dark,
-                            onTap: () => ref.read(themeModeProvider.notifier).setThemeMode(ThemeMode.dark),
-                            theme: theme,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // 3. Automations & Alerts Card
+                // 2. Automations & Alerts Card
                 Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
@@ -884,50 +827,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             },
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildThemeOption({
-    required String label,
-    required IconData icon,
-    required bool isSelected,
-    required VoidCallback onTap,
-    required ThemeData theme,
-  }) {
-    return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: isSelected ? theme.colorScheme.primaryContainer : theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isSelected ? theme.colorScheme.primary : Colors.transparent,
-              width: 1.5,
-            ),
-          ),
-          child: Column(
-            children: [
-              Icon(
-                icon,
-                size: 20,
-                color: isSelected ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurfaceVariant,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                  color: isSelected ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

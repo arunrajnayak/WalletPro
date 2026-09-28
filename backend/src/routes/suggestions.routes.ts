@@ -76,6 +76,57 @@ router.get('/stats', authenticate, async (req: Request, res: Response) => {
   res.json(stats);
 });
 
+// GET /api/suggestions/recent-categories - Get 3-5 last used categories for an account
+router.get('/recent-categories', authenticate, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const { accountId, limit = '5' } = req.query;
+
+    if (!accountId || typeof accountId !== 'string') {
+      return res.json([]);
+    }
+
+    // Find recent approved or synced suggestions for this account with non-null category
+    const recent = await prisma.suggestion.findMany({
+      where: {
+        userId,
+        walletAccountId: accountId,
+        walletCategoryId: { not: null },
+        status: { in: ['approved', 'synced'] },
+      },
+      orderBy: [
+        { actionedAt: 'desc' },
+        { createdAt: 'desc' },
+      ],
+      select: {
+        walletCategoryId: true,
+        walletCategoryName: true,
+      },
+      take: 40,
+    });
+
+    // Deduplicate by category ID while preserving most recent order
+    const seen = new Set<string>();
+    const categories: Array<{ id: string; name: string }> = [];
+    const maxItems = Math.min(Math.max(parseInt(limit as string, 10) || 5, 1), 10);
+
+    for (const item of recent) {
+      if (item.walletCategoryId && !seen.has(item.walletCategoryId)) {
+        seen.add(item.walletCategoryId);
+        categories.push({
+          id: item.walletCategoryId,
+          name: item.walletCategoryName || 'Category',
+        });
+        if (categories.length >= maxItems) break;
+      }
+    }
+
+    return res.json(categories);
+  } catch (error: any) {
+    return res.status(500).json({ error: 'Failed to fetch recent categories', details: error.message });
+  }
+});
+
 // POST /api/suggestions - Create a suggestion (from raw SMS text or structured transaction)
 router.post('/', authenticate, async (req: Request, res: Response) => {
   const userId = req.user.id;

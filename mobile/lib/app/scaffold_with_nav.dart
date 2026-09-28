@@ -35,11 +35,6 @@ class ScaffoldWithNestedNavigation extends ConsumerWidget {
             selectedIcon: Icons.dashboard_rounded,
             label: 'Home',
           ),
-          const LiquidGlassNavItem(
-            icon: Icons.grid_view_outlined,
-            selectedIcon: Icons.grid_view_rounded,
-            label: 'QuickView',
-          ),
           LiquidGlassNavItem(
             icon: Icons.checklist_rtl_outlined,
             selectedIcon: Icons.checklist_rtl_rounded,

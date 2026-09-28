@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 class CategoryPicker extends StatefulWidget {
   final List<dynamic> categories;
   final String? selectedCategoryId;
+  final List<Map<String, dynamic>>? recentCategories;
   final ValueChanged<Map<String, dynamic>> onSelect;
 
   const CategoryPicker({
     super.key,
     required this.categories,
     this.selectedCategoryId,
+    this.recentCategories,
     required this.onSelect,
   });
 
@@ -17,6 +19,7 @@ class CategoryPicker extends StatefulWidget {
     BuildContext context, {
     required List<dynamic> categories,
     String? selectedCategoryId,
+    List<Map<String, dynamic>>? recentCategories,
   }) {
     return showModalBottomSheet<Map<String, dynamic>>(
       context: context,
@@ -34,6 +37,7 @@ class CategoryPicker extends StatefulWidget {
           child: CategoryPicker(
             categories: categories,
             selectedCategoryId: selectedCategoryId,
+            recentCategories: recentCategories,
             onSelect: (cat) => Navigator.pop(ctx, cat),
           ),
         ),
@@ -136,6 +140,72 @@ class _CategoryPickerState extends State<CategoryPicker> {
         ),
 
         const SizedBox(height: 8),
+
+        // Recent Categories Quick Chips (if available and not searching)
+        if (_filter.isEmpty && widget.recentCategories != null && widget.recentCategories!.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.history_rounded, size: 14, color: theme.colorScheme.primary),
+                    const SizedBox(width: 6),
+                    Text(
+                      'RECENT FOR THIS ACCOUNT',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: widget.recentCategories!.map((cat) {
+                    final isSel = cat['id'] == widget.selectedCategoryId;
+                    return InkWell(
+                      onTap: () {
+                        final match = widget.categories.firstWhere(
+                          (c) => (c['walletCategoryId'] == cat['id'] || c['id'] == cat['id']),
+                          orElse: () => {'walletCategoryId': cat['id'], 'name': cat['name']},
+                        );
+                        widget.onSelect(match as Map<String, dynamic>);
+                      },
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: isSel
+                              ? theme.colorScheme.primaryContainer
+                              : theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: isSel ? theme.colorScheme.primary : theme.colorScheme.outlineVariant.withOpacity(0.5),
+                            width: isSel ? 1.5 : 1.0,
+                          ),
+                        ),
+                        child: Text(
+                          cat['name'] ?? 'Category',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: isSel ? FontWeight.bold : FontWeight.w600,
+                            color: isSel ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurface,
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const Divider(height: 18),
+              ],
+            ),
+          ),
+        ],
 
         // Category List
         Expanded(

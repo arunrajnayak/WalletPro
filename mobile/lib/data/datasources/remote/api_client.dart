@@ -365,4 +365,49 @@ class ApiClient {
     final res = await _dio.get('/api/app/latest-release');
     return res.data as Map<String, dynamic>;
   }
+
+  /// Fetch 3-5 last used categories for a specific account
+  Future<List<Map<String, dynamic>>> getRecentCategoriesForAccount(
+    String accountId, {
+    int limit = 5,
+    bool forceRefresh = false,
+  }) async {
+    final key = 'recent_categories_$accountId';
+    if (!forceRefresh) {
+      final cached = _getFromCache<List<dynamic>>(key);
+      if (cached != null) {
+        return cached.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+    }
+
+    try {
+      final res = await _dio.get(
+        '/api/suggestions/recent-categories',
+        queryParameters: {'accountId': accountId, 'limit': limit},
+      );
+      final rawList = res.data as List<dynamic>;
+      final list = rawList.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      _saveToCache(key, list, ttl: const Duration(minutes: 5));
+      return list;
+    } catch (_) {
+      final stale = _getFromCache<List<dynamic>>(key, allowStale: true);
+      if (stale != null) {
+        return stale.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+      return [];
+    }
+  }
+
+  /// Optimistically record that a category was used for an account in local cache
+  void recordCategoryUsedForAccount(String accountId, String categoryId, String categoryName) {
+    final key = 'recent_categories_$accountId';
+    final existing = _getFromCache<List<dynamic>>(key, allowStale: true) ?? [];
+    final list = existing.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    list.removeWhere((item) => item['id'] == categoryId);
+    list.insert(0, {'id': categoryId, 'name': categoryName});
+    if (list.length > 5) {
+      list.removeRange(5, list.length);
+    }
+    _saveToCache(key, list, ttl: const Duration(minutes: 10));
+  }
 }
