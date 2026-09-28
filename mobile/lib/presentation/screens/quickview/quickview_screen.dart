@@ -1,26 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../core/utils/account_sorter.dart';
 import '../../../data/datasources/remote/api_client.dart';
+import '../../providers/wallet_provider.dart';
 import '../../widgets/skeleton_loader.dart';
 
-class QuickViewScreen extends StatefulWidget {
+class QuickViewScreen extends ConsumerStatefulWidget {
   const QuickViewScreen({super.key});
 
   @override
-  State<QuickViewScreen> createState() => _QuickViewScreenState();
+  ConsumerState<QuickViewScreen> createState() => _QuickViewScreenState();
 }
 
-class _QuickViewScreenState extends State<QuickViewScreen> {
+class _QuickViewScreenState extends ConsumerState<QuickViewScreen> {
   final ApiClient _api = ApiClient();
 
   bool _isLoading = true;
   bool _isRefreshing = false;
   String? _errorMessage;
 
-  List<dynamic> _accounts = [];
   List<dynamic> _recentRecords = [];
   Map<String, dynamic> _summary = {
     'totalAssets': 0.0,
@@ -32,7 +33,11 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
   @override
   void initState() {
     super.initState();
-    _loadQuickViewData();
+    final existingAccounts = ref.read(walletAccountsProvider);
+    if (existingAccounts.isNotEmpty) {
+      _isLoading = false;
+    }
+    _loadQuickViewData(showRefreshing: existingAccounts.isNotEmpty);
   }
 
   Future<void> _loadQuickViewData({bool showRefreshing = false}) async {
@@ -47,9 +52,9 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
       if (mounted) {
         final accounts = (data['accounts'] as List<dynamic>?) ?? [];
         AccountSorter.sortAccounts(accounts);
+        ref.read(walletAccountsProvider.notifier).setAccounts(accounts);
 
         setState(() {
-          _accounts = accounts;
           _recentRecords = (data['recentRecords'] as List<dynamic>?) ?? [];
           _summary = (data['summary'] as Map<String, dynamic>?) ?? _summary;
           _errorMessage = null;
@@ -162,7 +167,9 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
   }
 
   void _showReorderAccountsModal() {
-    final reorderList = List<dynamic>.from(_accounts);
+    final currentAccounts = ref.read(walletAccountsProvider);
+    final reorderList = List<dynamic>.from(currentAccounts);
+    final previousList = List<dynamic>.from(currentAccounts);
 
     showModalBottomSheet(
       context: context,
@@ -211,13 +218,12 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
                         TextButton(
                           onPressed: () async {
                             Navigator.pop(ctx);
-                            setState(() {
-                              _accounts = reorderList;
-                            });
+                            final orderIds = reorderList
+                                .map((a) => (a['walletAccountId'] ?? a['id']).toString())
+                                .toList();
+                            // Frame 0 optimistic update in Riverpod shared provider
+                            ref.read(walletAccountsProvider.notifier).reorder(orderIds);
                             try {
-                              final orderIds = reorderList
-                                  .map((a) => (a['walletAccountId'] ?? a['id']).toString())
-                                  .toList();
                               await _api.saveAccountOrder(orderIds);
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
@@ -225,6 +231,8 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
                                 );
                               }
                             } catch (e) {
+                              // Rollback on failure
+                              ref.read(walletAccountsProvider.notifier).setAccounts(previousList);
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(content: Text('Failed to save order: $e'), backgroundColor: Colors.red),
@@ -557,6 +565,8 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
     try {
       await _api.syncWallet();
       await _loadQuickViewData(showRefreshing: true);
+      final freshCategories = await _api.getWalletCategories(forceRefresh: true);
+      ref.read(walletCategoriesProvider.notifier).setCategories(freshCategories);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -581,6 +591,7 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
     // Dark theme matching the user's screenshot
     const bgColor = Color(0xFF141416);
     const cardDarkColor = Color(0xFF1C1C1F);
+    final accounts = ref.watch(walletAccountsProvider);
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -701,7 +712,7 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
                     ),
                   ),
                 )
-              : _buildAccountsTab(cardDarkColor),
+              : _buildAccountsTab(cardDarkColor, accounts),
       floatingActionButton: FloatingActionButton(
         backgroundColor: const Color(0xFF64B5F6), // Light blue matching screenshot
         foregroundColor: Colors.white,
@@ -750,7 +761,7 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
     );
   }
 
-  Widget _buildAccountsTab(Color cardDarkColor) {
+  Widget _buildAccountsTab(Color cardDarkColor, List<dynamic> accounts) {
     return RefreshIndicator(
       onRefresh: () => _loadQuickViewData(showRefreshing: true),
       color: Colors.white,
@@ -799,7 +810,7 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
           const SizedBox(height: 12),
 
           // 3-Column Accounts Grid
-          _buildAccountsGrid(),
+          _buildAccountsGrid(accounts),
 
           const SizedBox(height: 12),
 
@@ -865,7 +876,7 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
                   label: 'Investments',
                   onTap: () {
                     // Filter investment accounts
-                    final investAccounts = _accounts.where((a) {
+                    final investAccounts = accounts.where((a) {
                       final name = (a['name'] ?? '').toString().toLowerCase();
                       return name.contains('mutual') ||
                           name.contains('zerodha') ||
@@ -950,7 +961,7 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
           const SizedBox(height: 8),
 
           // Balance Trend Summary Card
-          _buildBalanceTrendCard(),
+          _buildBalanceTrendCard(accounts),
 
           const SizedBox(height: 60), // Spacing for FAB
         ],
@@ -958,8 +969,8 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
     );
   }
 
-  Widget _buildAccountsGrid() {
-    final itemCount = _accounts.length + 1; // +1 for "Add account +"
+  Widget _buildAccountsGrid(List<dynamic> accounts) {
+    final itemCount = accounts.length + 1; // +1 for "Add account +"
 
     return GridView.builder(
       shrinkWrap: true,
@@ -972,7 +983,7 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
       ),
       itemCount: itemCount,
       itemBuilder: (context, index) {
-        if (index == _accounts.length) {
+        if (index == accounts.length) {
           // "Add account +" Tile
           return InkWell(
             onTap: _showAddAccountDialog,
@@ -1004,7 +1015,7 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
           );
         }
 
-        final acc = _accounts[index];
+        final acc = accounts[index];
         final name = acc['name'] ?? 'Account';
         final rawBal = acc['balance'];
         final double balance = (rawBal is num) ? rawBal.toDouble() : (double.tryParse(rawBal?.toString() ?? '0') ?? 0.0);
@@ -1098,7 +1109,7 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
     );
   }
 
-  Widget _buildBalanceTrendCard() {
+  Widget _buildBalanceTrendCard(List<dynamic> accounts) {
     final assets = (_summary['totalAssets'] is num) ? (_summary['totalAssets'] as num).toDouble() : 0.0;
     final liabilities = (_summary['totalLiabilities'] is num) ? (_summary['totalLiabilities'] as num).toDouble() : 0.0;
     final netWorth = (_summary['netWorth'] is num) ? (_summary['netWorth'] as num).toDouble() : 0.0;
@@ -1143,7 +1154,7 @@ class _QuickViewScreenState extends State<QuickViewScreen> {
                     Icon(Icons.arrow_upward, size: 14, color: Colors.green.shade400),
                     const SizedBox(width: 2),
                     Text(
-                      '${_accounts.length} Accounts',
+                      '${accounts.length} Accounts',
                       style: TextStyle(color: Colors.green.shade400, fontWeight: FontWeight.bold, fontSize: 12),
                     ),
                   ],

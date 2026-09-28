@@ -7,6 +7,8 @@ import '../../../data/datasources/local/notification_service.dart';
 import '../../../data/datasources/local/sms_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
 import '../../providers/pending_count_provider.dart';
+import '../../providers/suggestions_provider.dart';
+import '../../providers/wallet_provider.dart';
 import '../../widgets/skeleton_loader.dart';
 import '../../widgets/suggestion_card.dart';
 import '../../widgets/swipeable_review_deck.dart';
@@ -28,9 +30,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
   bool _isDeckMode = true;
   String? _error;
 
-  List<dynamic> _suggestions = [];
-  List<dynamic> _categories = [];
-  List<dynamic> _accounts = [];
+  List<dynamic> _historicalSuggestions = [];
 
   @override
   void initState() {
@@ -89,17 +89,22 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
       final statsRes = futures[3] as Map<String, dynamic>;
 
       if (mounted) {
-        setState(() {
-          _suggestions = suggestionsRes;
-          _categories = categoriesRes;
-          _accounts = accountsRes;
-          _isLoading = false;
-        });
+        ref.read(walletAccountsProvider.notifier).setAccounts(accountsRes);
+        ref.read(walletCategoriesProvider.notifier).setCategories(categoriesRes);
+        if (_currentStatusFilter == 'pending') {
+          ref.read(pendingSuggestionsProvider.notifier).setSuggestions(suggestionsRes);
+        } else {
+          _historicalSuggestions = suggestionsRes;
+        }
 
         final int pendingCount = (statsRes['pending'] as num?)?.toInt() ??
             (_currentStatusFilter == 'pending' ? suggestionsRes.length : ref.read(pendingCountProvider));
         ref.read(pendingCountProvider.notifier).state = pendingCount;
         NotificationService.updatePendingCount(pendingCount);
+
+        setState(() {
+          _isLoading = false;
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -111,7 +116,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
     }
   }
 
-  /// Optimistic UI Approve: Removes card instantly and calls API in background.
+  /// Optimistic UI Approve: Removes card instantly from shared provider and calls API in background.
   /// If API fails, rolls back card to its previous position.
   Future<void> _handleApprove(
     String id, {
@@ -122,18 +127,15 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
     bool? isTransfer,
     String? transferToAccountId,
   }) async {
-    final index = _suggestions.indexWhere((item) => item['id'] == id);
-    if (index == -1) return;
+    final pending = ref.read(pendingSuggestionsProvider);
+    final index = pending.indexWhere((item) => item['id'] == id);
+    final removedItem = index != -1 ? pending[index] : null;
 
-    final removedItem = _suggestions[index];
-
-    // 1. Optimistic removal
-    setState(() {
-      _suggestions.removeAt(index);
-    });
+    // 1. Optimistic removal from shared reactive store
+    ref.read(pendingSuggestionsProvider.notifier).removeSuggestion(id);
 
     if (_currentStatusFilter == 'pending') {
-      final newCount = (_suggestions.length).clamp(0, 9999);
+      final newCount = (pending.length - 1).clamp(0, 9999);
       ref.read(pendingCountProvider.notifier).state = newCount;
       NotificationService.updatePendingCount(newCount);
     }
@@ -172,20 +174,16 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
       );
     } catch (e) {
       // 3. Rollback on failure
+      if (removedItem != null) {
+        ref.read(pendingSuggestionsProvider.notifier).insertSuggestion(removedItem, index: index);
+      }
+      if (_currentStatusFilter == 'pending') {
+        final revertedCount = ref.read(pendingSuggestionsProvider).length;
+        ref.read(pendingCountProvider.notifier).state = revertedCount;
+        NotificationService.updatePendingCount(revertedCount);
+      }
+
       if (mounted) {
-        setState(() {
-          if (index <= _suggestions.length) {
-            _suggestions.insert(index, removedItem);
-          } else {
-            _suggestions.add(removedItem);
-          }
-        });
-
-        if (_currentStatusFilter == 'pending') {
-          ref.read(pendingCountProvider.notifier).state = _suggestions.length;
-          NotificationService.updatePendingCount(_suggestions.length);
-        }
-
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -204,21 +202,18 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
     }
   }
 
-  /// Optimistic UI Reject: Removes card instantly and calls API in background.
+  /// Optimistic UI Reject: Removes card instantly from shared provider and calls API in background.
   /// If API fails, rolls back card to its previous position.
   Future<void> _handleReject(String id) async {
-    final index = _suggestions.indexWhere((item) => item['id'] == id);
-    if (index == -1) return;
+    final pending = ref.read(pendingSuggestionsProvider);
+    final index = pending.indexWhere((item) => item['id'] == id);
+    final removedItem = index != -1 ? pending[index] : null;
 
-    final removedItem = _suggestions[index];
-
-    // 1. Optimistic removal
-    setState(() {
-      _suggestions.removeAt(index);
-    });
+    // 1. Optimistic removal from shared reactive store
+    ref.read(pendingSuggestionsProvider.notifier).removeSuggestion(id);
 
     if (_currentStatusFilter == 'pending') {
-      final newCount = (_suggestions.length).clamp(0, 9999);
+      final newCount = (pending.length - 1).clamp(0, 9999);
       ref.read(pendingCountProvider.notifier).state = newCount;
       NotificationService.updatePendingCount(newCount);
     }
@@ -238,20 +233,16 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
       await _api.rejectSuggestion(id);
     } catch (e) {
       // 3. Rollback on failure
+      if (removedItem != null) {
+        ref.read(pendingSuggestionsProvider.notifier).insertSuggestion(removedItem, index: index);
+      }
+      if (_currentStatusFilter == 'pending') {
+        final revertedCount = ref.read(pendingSuggestionsProvider).length;
+        ref.read(pendingCountProvider.notifier).state = revertedCount;
+        NotificationService.updatePendingCount(revertedCount);
+      }
+
       if (mounted) {
-        setState(() {
-          if (index <= _suggestions.length) {
-            _suggestions.insert(index, removedItem);
-          } else {
-            _suggestions.add(removedItem);
-          }
-        });
-
-        if (_currentStatusFilter == 'pending') {
-          ref.read(pendingCountProvider.notifier).state = _suggestions.length;
-          NotificationService.updatePendingCount(_suggestions.length);
-        }
-
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -267,12 +258,11 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
   Future<void> _handleUndo(dynamic restoredItem) async {
     final id = restoredItem['id'].toString();
 
-    setState(() {
-      _suggestions.insert(0, restoredItem);
-    });
+    // 1. Optimistic restoration into shared reactive store
+    ref.read(pendingSuggestionsProvider.notifier).insertSuggestion(restoredItem, index: 0);
 
     if (_currentStatusFilter == 'pending') {
-      final newCount = _suggestions.length;
+      final newCount = ref.read(pendingSuggestionsProvider).length;
       ref.read(pendingCountProvider.notifier).state = newCount;
       NotificationService.updatePendingCount(newCount);
     }
@@ -297,6 +287,13 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
     try {
       await _api.resetSuggestion(id);
     } catch (e) {
+      // Rollback on failure
+      ref.read(pendingSuggestionsProvider.notifier).removeSuggestion(id);
+      if (_currentStatusFilter == 'pending') {
+        final revertedCount = ref.read(pendingSuggestionsProvider).length;
+        ref.read(pendingCountProvider.notifier).state = revertedCount;
+        NotificationService.updatePendingCount(revertedCount);
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -346,7 +343,11 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final pendingCount = ref.watch(pendingCountProvider);
+    final pendingSuggestions = ref.watch(pendingSuggestionsProvider);
+    final accounts = ref.watch(walletAccountsProvider);
+    final categories = ref.watch(walletCategoriesProvider);
     final isApprovedOrRejected = _currentStatusFilter != 'pending';
+    final currentSuggestions = isApprovedOrRejected ? _historicalSuggestions : pendingSuggestions;
 
     return Scaffold(
       appBar: AppBar(
@@ -420,7 +421,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
       body: Column(
         children: [
           // Informational bar for approved / rejected tabs capping at 100
-          if (isApprovedOrRejected && _suggestions.isNotEmpty)
+          if (isApprovedOrRejected && currentSuggestions.isNotEmpty)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -430,7 +431,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
                   Icon(Icons.info_outline, size: 14, color: theme.colorScheme.outline),
                   const SizedBox(width: 6),
                   Text(
-                    'Showing latest ${_suggestions.length} records sorted by date',
+                    'Showing latest ${currentSuggestions.length} records sorted by date',
                     style: TextStyle(fontSize: 11.5, color: theme.colorScheme.outline),
                   ),
                 ],
@@ -462,16 +463,16 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
                       )
                     : (_currentStatusFilter == 'pending' && _isDeckMode)
                         ? SwipeableReviewDeck(
-                            suggestions: _suggestions,
-                            categories: _categories,
-                            accounts: _accounts,
+                            suggestions: pendingSuggestions,
+                            categories: categories,
+                            accounts: accounts,
                             onApprove: _handleApprove,
                             onReject: _handleReject,
                             onUndo: _handleUndo,
                             onRefresh: _loadData,
                             onScanSms: _scanSmsInbox,
                           )
-                        : _suggestions.isEmpty
+                        : currentSuggestions.isEmpty
                             ? RefreshIndicator(
                                 onRefresh: _loadData,
                                 child: ListView(
@@ -526,14 +527,14 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
                                 onRefresh: _loadData,
                                 child: ListView.builder(
                                   padding: const EdgeInsets.only(top: 8, bottom: 100),
-                                  itemCount: _suggestions.length,
+                                  itemCount: currentSuggestions.length,
                                   itemBuilder: (context, index) {
-                                    final item = _suggestions[index];
+                                    final item = currentSuggestions[index];
                                     return SuggestionCard(
                                       key: Key(item['id']),
                                       suggestion: item,
-                                      categories: _categories,
-                                      accounts: _accounts,
+                                      categories: categories,
+                                      accounts: accounts,
                                       onApprove: _handleApprove,
                                       onReject: _handleReject,
                                     );

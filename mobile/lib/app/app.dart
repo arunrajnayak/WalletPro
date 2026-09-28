@@ -4,6 +4,7 @@ import '../data/datasources/local/notification_service.dart';
 import '../data/datasources/local/sms_service.dart';
 import '../data/datasources/remote/api_client.dart';
 import '../presentation/providers/pending_count_provider.dart';
+import '../presentation/providers/suggestions_provider.dart';
 import '../presentation/providers/theme_provider.dart';
 import 'router.dart';
 import 'theme.dart';
@@ -67,6 +68,12 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
         final int pending = (stats['pending'] as num?)?.toInt() ?? 0;
         if (mounted) {
           ref.read(pendingCountProvider.notifier).state = pending;
+          if (result['created'] != null && result['created']! > 0) {
+            final freshSuggestions = await _api.getSuggestions(status: 'pending', limit: 100);
+            if (mounted) {
+              ref.read(pendingSuggestionsProvider.notifier).setSuggestions(freshSuggestions);
+            }
+          }
         }
         await NotificationService.updatePendingCount(pending);
       }

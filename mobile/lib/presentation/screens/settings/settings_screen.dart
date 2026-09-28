@@ -4,6 +4,7 @@ import '../../../data/datasources/local/notification_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../providers/theme_provider.dart';
+import '../../providers/wallet_provider.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -19,7 +20,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _notifListenerEnabled = false;
 
   // Wallet State
-  List<dynamic> _accounts = [];
   bool _walletConnected = false;
   Map<String, dynamic>? _walletProfile;
 
@@ -47,9 +47,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final notifEnabled = futures[3] as bool;
 
       if (mounted) {
+        ref.read(walletAccountsProvider.notifier).setAccounts(accounts);
         setState(() {
           _walletConnected = profile['walletApiToken'] != null;
-          _accounts = accounts;
           _walletProfile = walletProfile;
           _notifListenerEnabled = notifEnabled;
           _isLoading = false;
@@ -69,20 +69,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     setState(() => _isSyncing = true);
     try {
       final res = await _api.syncWallet();
-      await _loadSettings();
+      final freshAccounts = await _api.getWalletAccounts(includeArchived: false, forceRefresh: true);
+      final freshCategories = await _api.getWalletCategories(forceRefresh: true);
+      ref.read(walletAccountsProvider.notifier).setAccounts(freshAccounts);
+      ref.read(walletCategoriesProvider.notifier).setCategories(freshCategories);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               'Synced ${res['accountsCount']} accounts & ${res['categoriesCount']} categories from Wallet',
             ),
+            backgroundColor: Colors.green.shade700,
           ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sync failed: $e')),
+          SnackBar(content: Text('Sync failed: $e'), backgroundColor: Colors.red.shade700),
         );
       }
     } finally {
@@ -161,40 +166,81 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
 
+    final accountId = (account['id'] ?? account['walletAccountId']).toString();
+    final previousLast4 = account['last4Digits'];
+
     if (result == 'DONT_MAP') {
+      // 1. Immediate optimistic update in shared reactive state
+      ref.read(walletAccountsProvider.notifier).updateMapping(accountId, 'NONE');
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_outline, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Text('Marked "${account['name']}" as Don\'t Map ✓'),
+              ],
+            ),
+            duration: const Duration(seconds: 2),
+            backgroundColor: Colors.green.shade700,
+          ),
+        );
+      }
+
+      // 2. Background persistence (no screen reload or spinner)
       try {
-        await _api.mapAccountLast4(account['id'], 'NONE');
-        await _loadSettings();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Marked "${account['name']}" as Don\'t Map')),
-          );
-        }
+        await _api.mapAccountLast4(accountId, 'NONE');
       } catch (e) {
+        // 3. Rollback on failure
+        ref.read(walletAccountsProvider.notifier).updateMapping(accountId, previousLast4);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to update account: $e')),
+            SnackBar(
+              content: Text('Failed to update account: $e'),
+              backgroundColor: Colors.red.shade700,
+            ),
           );
         }
       }
     } else if (result == 'SAVE') {
       final digits = controller.text.trim();
+      final newLast4 = digits.isEmpty ? null : digits;
+
+      // 1. Immediate optimistic update in shared reactive state
+      ref.read(walletAccountsProvider.notifier).updateMapping(accountId, newLast4);
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_outline, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Text(newLast4 == null
+                    ? 'Reset mapping for "${account['name']}" ✓'
+                    : 'Mapped "${account['name']}" to •••• $newLast4 ✓'),
+              ],
+            ),
+            duration: const Duration(seconds: 2),
+            backgroundColor: Colors.green.shade700,
+          ),
+        );
+      }
+
+      // 2. Background persistence (no screen reload or spinner)
       try {
-        await _api.mapAccountLast4(account['id'], digits.isEmpty ? null : digits);
-        await _loadSettings();
+        await _api.mapAccountLast4(accountId, newLast4);
+      } catch (e) {
+        // 3. Rollback on failure
+        ref.read(walletAccountsProvider.notifier).updateMapping(accountId, previousLast4);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(digits.isEmpty
-                  ? 'Reset mapping for ${account['name']}'
-                  : 'Mapped ${account['name']} to •••• $digits'),
+              content: Text('Failed to map account: $e'),
+              backgroundColor: Colors.red.shade700,
             ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to map account: $e')),
           );
         }
       }
@@ -206,13 +252,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final currentThemeMode = ref.watch(themeModeProvider);
+    final accounts = ref.watch(walletAccountsProvider);
 
     final rateLimit = _walletProfile?['rateLimit'] as Map<String, dynamic>?;
     final remainingCalls = rateLimit?['remaining'] ?? 0;
     final capacityCalls = rateLimit?['capacity'] ?? 1500;
     final syncState = _walletProfile?['syncState'] ?? (_walletConnected ? 'idle' : 'disconnected');
 
-    final filteredAccounts = _accounts.where((a) {
+    final filteredAccounts = accounts.where((a) {
       if (_accountSearchQuery.isEmpty) return true;
       final q = _accountSearchQuery.toLowerCase();
       final name = (a['name'] ?? '').toString().toLowerCase();
@@ -528,7 +575,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               const Text('Account Card Mappings', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                             ],
                           ),
-                          Text('${_accounts.length} active', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
+                          Text('${accounts.length} active', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
                         ],
                       ),
                       const SizedBox(height: 6),

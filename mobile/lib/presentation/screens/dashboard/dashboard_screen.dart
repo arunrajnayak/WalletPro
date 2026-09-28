@@ -8,6 +8,8 @@ import '../../../data/datasources/local/notification_service.dart';
 import '../../../data/datasources/local/sms_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
 import '../../providers/pending_count_provider.dart';
+import '../../providers/wallet_provider.dart';
+import '../../providers/suggestions_provider.dart';
 import '../../widgets/suggestion_card.dart';
 import '../../widgets/skeleton_loader.dart';
 
@@ -24,14 +26,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   bool _isLoading = true;
   bool _isScanning = false;
-  int _pendingCount = 0;
   int _approvedCount = 0;
 
   Map<String, dynamic>? _quickViewData;
   Map<String, dynamic>? _walletProfile;
-  List<dynamic> _recentSuggestions = [];
-  List<dynamic> _categories = [];
-  List<dynamic> _accounts = [];
 
   @override
   void initState() {
@@ -58,7 +56,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       final futures = await Future.wait([
         _api.getSuggestionStats(),
         _api.getUserProfile(forceRefresh: forceRefresh),
-        _api.getSuggestions(status: 'pending', limit: 5),
+        _api.getSuggestions(status: 'pending', limit: 50),
         _api.getWalletCategories(forceRefresh: forceRefresh),
         _api.getWalletAccounts(forceRefresh: forceRefresh),
         _api.getQuickView(forceRefresh: forceRefresh).catchError((_) => <String, dynamic>{}),
@@ -76,14 +74,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       ref.read(pendingCountProvider.notifier).state = pending;
       NotificationService.updatePendingCount(pending);
 
+      AccountSorter.sortAccounts(accounts);
+      ref.read(walletAccountsProvider.notifier).setAccounts(accounts);
+      ref.read(walletCategoriesProvider.notifier).setCategories(categories);
+      ref.read(pendingSuggestionsProvider.notifier).setSuggestions(recents);
+
       if (mounted) {
         setState(() {
-          _pendingCount = pending;
           _approvedCount = stats['approved'] ?? 0;
-          AccountSorter.sortAccounts(accounts);
-          _recentSuggestions = recents;
-          _categories = categories;
-          _accounts = accounts;
           _quickViewData = quickView;
           _walletProfile = walletProfile;
           _isLoading = false;
@@ -107,17 +105,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     bool? isTransfer,
     String? transferToAccountId,
   }) async {
-    final index = _recentSuggestions.indexWhere((item) => item['id'] == id);
+    final pending = ref.read(pendingSuggestionsProvider);
+    final index = pending.indexWhere((item) => item['id'] == id);
     if (index == -1) return;
-    final removedItem = _recentSuggestions[index];
+    final removedItem = pending[index];
 
-    final updatedPending = (_pendingCount - 1).clamp(0, 9999);
+    // 1. Optimistic removal from shared reactive store
+    ref.read(pendingSuggestionsProvider.notifier).removeSuggestion(id);
+
+    final currentPending = ref.read(pendingCountProvider);
+    final updatedPending = (currentPending - 1).clamp(0, 9999);
     ref.read(pendingCountProvider.notifier).state = updatedPending;
     NotificationService.updatePendingCount(updatedPending);
 
     setState(() {
-      _recentSuggestions.removeAt(index);
-      _pendingCount = updatedPending;
       _approvedCount += 1;
     });
 
@@ -147,19 +148,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         transferToAccountId: transferToAccountId,
       );
     } catch (e) {
+      // Rollback on failure
+      ref.read(pendingSuggestionsProvider.notifier).insertSuggestion(removedItem, index: index);
+      final revertedPending = (ref.read(pendingCountProvider) + 1).clamp(0, 9999);
+      ref.read(pendingCountProvider.notifier).state = revertedPending;
+      NotificationService.updatePendingCount(revertedPending);
+
       if (mounted) {
         setState(() {
-          if (index <= _recentSuggestions.length) {
-            _recentSuggestions.insert(index, removedItem);
-          } else {
-            _recentSuggestions.add(removedItem);
-          }
-          _pendingCount = (_pendingCount + 1).clamp(0, 9999);
           _approvedCount = (_approvedCount - 1).clamp(0, 9999);
         });
-        ref.read(pendingCountProvider.notifier).state = _pendingCount;
-        NotificationService.updatePendingCount(_pendingCount);
-
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -174,18 +172,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   /// Optimistic UI Reject: Removes card instantly and calls API in background.
   /// Rolls back on failure.
   Future<void> _handleReject(String id) async {
-    final index = _recentSuggestions.indexWhere((item) => item['id'] == id);
+    final pending = ref.read(pendingSuggestionsProvider);
+    final index = pending.indexWhere((item) => item['id'] == id);
     if (index == -1) return;
-    final removedItem = _recentSuggestions[index];
+    final removedItem = pending[index];
 
-    final updatedPending = (_pendingCount - 1).clamp(0, 9999);
+    // 1. Optimistic removal from shared reactive store
+    ref.read(pendingSuggestionsProvider.notifier).removeSuggestion(id);
+
+    final currentPending = ref.read(pendingCountProvider);
+    final updatedPending = (currentPending - 1).clamp(0, 9999);
     ref.read(pendingCountProvider.notifier).state = updatedPending;
     NotificationService.updatePendingCount(updatedPending);
-
-    setState(() {
-      _recentSuggestions.removeAt(index);
-      _pendingCount = updatedPending;
-    });
 
     if (mounted) {
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -200,18 +198,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     try {
       await _api.rejectSuggestion(id);
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          if (index <= _recentSuggestions.length) {
-            _recentSuggestions.insert(index, removedItem);
-          } else {
-            _recentSuggestions.add(removedItem);
-          }
-          _pendingCount = (_pendingCount + 1).clamp(0, 9999);
-        });
-        ref.read(pendingCountProvider.notifier).state = _pendingCount;
-        NotificationService.updatePendingCount(_pendingCount);
+      // Rollback on failure
+      ref.read(pendingSuggestionsProvider.notifier).insertSuggestion(removedItem, index: index);
+      final revertedPending = (ref.read(pendingCountProvider) + 1).clamp(0, 9999);
+      ref.read(pendingCountProvider.notifier).state = revertedPending;
+      NotificationService.updatePendingCount(revertedPending);
 
+      if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -259,6 +252,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
+    final pendingCount = ref.watch(pendingCountProvider);
+    final pendingSuggestions = ref.watch(pendingSuggestionsProvider);
+    final accounts = ref.watch(walletAccountsProvider);
+    final categories = ref.watch(walletCategoriesProvider);
+    final recentSuggestions = pendingSuggestions.take(5).toList();
+
     final netWorth = (_quickViewData?['summary']?['netWorth'] as num?)?.toDouble() ?? 0.0;
     final totalAssets = (_quickViewData?['summary']?['totalAssets'] as num?)?.toDouble() ?? 0.0;
     final totalLiabilities = (_quickViewData?['summary']?['totalLiabilities'] as num?)?.toDouble() ?? 0.0;
@@ -282,8 +281,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: isSyncing
-                      ? Colors.orange.shade300
-                      : (isConnected ? Colors.green.shade300 : Colors.grey.shade300),
+                    ? Colors.orange.shade300
+                    : (isConnected ? Colors.green.shade300 : Colors.grey.shade300),
                   width: 0.8,
                 ),
               ),
@@ -330,7 +329,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   const SizedBox(height: 16),
 
                   // 2. Quick Action Grid
-                  _buildQuickActionGrid(theme, isDark),
+                  _buildQuickActionGrid(theme, isDark, pendingCount),
 
                   const SizedBox(height: 16),
 
@@ -349,7 +348,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             'Pending Review',
                             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                           ),
-                          if (_pendingCount > 0) ...[
+                          if (pendingCount > 0) ...[
                             const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -358,7 +357,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Text(
-                                '$_pendingCount',
+                                '$pendingCount',
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold,
@@ -369,7 +368,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           ],
                         ],
                       ),
-                      if (_recentSuggestions.isNotEmpty)
+                      if (recentSuggestions.isNotEmpty)
                         TextButton(
                           onPressed: () => context.push('/suggestions'),
                           child: const Text('View All'),
@@ -380,7 +379,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   const SizedBox(height: 8),
 
                   // 5. Recent Suggestion Cards
-                  if (_recentSuggestions.isEmpty)
+                  if (recentSuggestions.isEmpty)
                     Container(
                       padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 16),
                       decoration: BoxDecoration(
@@ -405,15 +404,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       ),
                     )
                   else
-                    ..._recentSuggestions.map(
+                    ...recentSuggestions.map(
                       (item) => Padding(
                         padding: const EdgeInsets.only(bottom: 6),
                         child: SuggestionCard(
                           key: Key(item['id']),
                           margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 6),
                           suggestion: item,
-                          categories: _categories,
-                          accounts: _accounts,
+                          categories: categories,
+                          accounts: accounts,
                           onApprove: _handleApprove,
                           onReject: _handleReject,
                         ),
@@ -543,7 +542,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildQuickActionGrid(ThemeData theme, bool isDark) {
+  Widget _buildQuickActionGrid(ThemeData theme, bool isDark, int pendingCount) {
     return Row(
       children: [
         _buildActionTile(
@@ -564,7 +563,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         const SizedBox(width: 10),
         _buildActionTile(
           icon: Icons.checklist_rtl_rounded,
-          label: 'Review ($_pendingCount)',
+          label: 'Review ($pendingCount)',
           color: const Color(0xFFF59E0B),
           onTap: () => context.push('/suggestions'),
           theme: theme,
