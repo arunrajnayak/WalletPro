@@ -9,6 +9,7 @@ import suggestionsRoutes from './routes/suggestions.routes';
 import portfolioRoutes from './routes/portfolio.routes';
 import insightsRoutes from './routes/insights.routes';
 import cronRoutes from './routes/cron.routes';
+import appRoutes from './routes/app.routes';
 
 const app = express();
 
@@ -37,6 +38,7 @@ app.use('/api/suggestions', suggestionsRoutes);
 app.use('/api/portfolio', portfolioRoutes);
 app.use('/api/insights', insightsRoutes);
 app.use('/api/cron', cronRoutes);
+app.use('/api/app', appRoutes);
 
 // Global Error Handler
 app.use(errorHandler);

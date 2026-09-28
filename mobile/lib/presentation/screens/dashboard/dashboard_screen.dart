@@ -6,7 +6,9 @@ import '../../../core/utils/date_formatter.dart';
 import '../../../core/utils/account_sorter.dart';
 import '../../../data/datasources/local/notification_service.dart';
 import '../../../data/datasources/local/sms_service.dart';
+import '../../../data/datasources/local/update_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
+import '../../providers/app_update_provider.dart';
 import '../../providers/pending_count_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../providers/suggestions_provider.dart';
@@ -256,6 +258,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final pendingSuggestions = ref.watch(pendingSuggestionsProvider);
     final accounts = ref.watch(walletAccountsProvider);
     final categories = ref.watch(walletCategoriesProvider);
+    final updateState = ref.watch(appUpdateProvider);
     final recentSuggestions = pendingSuggestions.take(5).toList();
 
     final netWorth = (_quickViewData?['summary']?['netWorth'] as num?)?.toDouble() ?? 0.0;
@@ -323,6 +326,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 children: [
+                  // 0. Update Alert Banner (when new version is detected)
+                  if (updateState.updateInfo?.isUpdateAvailable == true && !updateState.isBannerDismissed) ...[
+                    _buildUpdateBanner(updateState.updateInfo!, theme, isDark),
+                    const SizedBox(height: 14),
+                  ],
+
                   // 1. Hero Net Worth Glance Card
                   _buildNetWorthHeroCard(netWorth, totalAssets, totalLiabilities, theme, isDark),
 
@@ -665,6 +674,117 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               label: Text(_isScanning ? 'Scanning Inbox...' : 'Scan New SMS Inbox'),
               onPressed: _isScanning ? null : _scanSmsInbox,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUpdateBanner(UpdateInfo info, ThemeData theme, bool isDark) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? const Color(0xFF3B82F6) : const Color(0xFF93C5FD),
+          width: 1.2,
+        ),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E3A8A) : const Color(0xFFDBEAFE),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.system_update_rounded,
+              size: 20,
+              color: isDark ? const Color(0xFF93C5FD) : const Color(0xFF1D4ED8),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      'Update v${info.latestVersion} Available',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : const Color(0xFF1E3A8A),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade600,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'NEW',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'A new version with the latest improvements is available for installation.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.white70 : const Color(0xFF1E40AF),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    FilledButton(
+                      onPressed: () => context.push('/settings'),
+                      style: FilledButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        backgroundColor: const Color(0xFF2563EB),
+                      ),
+                      child: const Text('Update Now', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      onPressed: () => ref.read(appUpdateProvider.notifier).dismissBanner(),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        foregroundColor: isDark ? Colors.white60 : const Color(0xFF475569),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      ),
+                      child: const Text('Later', style: TextStyle(fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: Icon(
+              Icons.close_rounded,
+              size: 18,
+              color: isDark ? Colors.white60 : Colors.grey.shade600,
+            ),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            onPressed: () => ref.read(appUpdateProvider.notifier).dismissBanner(),
+            tooltip: 'Dismiss',
           ),
         ],
       ),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/datasources/local/notification_service.dart';
 import '../data/datasources/local/sms_service.dart';
 import '../data/datasources/remote/api_client.dart';
+import '../presentation/providers/app_update_provider.dart';
 import '../presentation/providers/pending_count_provider.dart';
 import '../presentation/providers/suggestions_provider.dart';
 import '../presentation/providers/theme_provider.dart';
@@ -38,6 +39,7 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
         ref.read(routerProvider).go(initialRoute);
       }
       _triggerAutoScan();
+      _triggerAutoUpdateCheck();
     });
   }
 
@@ -51,6 +53,19 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _triggerAutoScan();
+      _triggerAutoUpdateCheck();
+    }
+  }
+
+  /// Silently check for app updates in the background
+  Future<void> _triggerAutoUpdateCheck() async {
+    try {
+      await ref.read(appUpdateProvider.notifier).checkForUpdate(
+        userInitiated: false,
+        notifyIfAvailable: true,
+      );
+    } catch (_) {
+      // Ignore background auto-update check errors
     }
   }
 

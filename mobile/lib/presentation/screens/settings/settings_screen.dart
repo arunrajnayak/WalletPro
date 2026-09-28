@@ -5,6 +5,7 @@ import '../../../data/datasources/remote/api_client.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/wallet_provider.dart';
+import '../../providers/app_update_provider.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -253,6 +254,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final isDark = theme.brightness == Brightness.dark;
     final currentThemeMode = ref.watch(themeModeProvider);
     final accounts = ref.watch(walletAccountsProvider);
+    final updateState = ref.watch(appUpdateProvider);
 
     final rateLimit = _walletProfile?['rateLimit'] as Map<String, dynamic>?;
     final remainingCalls = rateLimit?['remaining'] ?? 0;
@@ -647,9 +649,242 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 24),
+
+                const SizedBox(height: 16),
+
+                // 5. App Updates & Version Card
+                _buildAppUpdatesCard(theme, isDark, updateState),
+
+                const SizedBox(height: 36),
               ],
             ),
+    );
+  }
+
+  Widget _buildAppUpdatesCard(ThemeData theme, bool isDark, AppUpdateState updateState) {
+    final info = updateState.updateInfo;
+    final isAvailable = info != null && info.isUpdateAvailable;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 16,
+                    backgroundColor: theme.colorScheme.primaryContainer,
+                    child: Icon(Icons.system_update_rounded, size: 16, color: theme.colorScheme.primary),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text('App Updates', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white10 : Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: isDark ? Colors.white24 : Colors.grey.shade300),
+                ),
+                child: Text(
+                  'v${updateState.currentVersion}',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Keep WalletPro up to date with the latest features, improvements, and fixes directly within the app.',
+            style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 14),
+
+          // If an update is available
+          if (isAvailable) ...[
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade900.withOpacity(isDark ? 0.2 : 0.08),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.amber.shade600.withOpacity(0.4)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.new_releases_rounded, size: 18, color: Colors.amber.shade600),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'New Version Available: ${info.tagName}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: isDark ? Colors.amber.shade200 : Colors.amber.shade900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (info.changelog.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 120),
+                      child: SingleChildScrollView(
+                        child: Text(
+                          info.changelog,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.onSurfaceVariant,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+
+                  if (updateState.isDownloading) ...[
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Downloading APK update...',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: theme.colorScheme.primary),
+                            ),
+                            Text(
+                              '${(updateState.downloadProgress * 100).toStringAsFixed(0)}%',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: updateState.downloadProgress > 0 ? updateState.downloadProgress : null,
+                            minHeight: 6,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              '${(updateState.receivedBytes / 1024 / 1024).toStringAsFixed(1)} MB / ${(updateState.totalBytes / 1024 / 1024).toStringAsFixed(1)} MB',
+                              style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
+                            ),
+                            InkWell(
+                              onTap: () => ref.read(appUpdateProvider.notifier).cancelDownload(),
+                              child: Text(
+                                'Cancel',
+                                style: TextStyle(fontSize: 11, color: theme.colorScheme.error, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ] else if (updateState.isDownloaded) ...[
+                    FilledButton.icon(
+                      icon: const Icon(Icons.install_mobile_rounded, size: 18),
+                      label: Text('Install Update (${info.tagName})'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.green.shade700,
+                        minimumSize: const Size.fromHeight(42),
+                      ),
+                      onPressed: () => ref.read(appUpdateProvider.notifier).installUpdate(),
+                    ),
+                  ] else ...[
+                    FilledButton.icon(
+                      icon: const Icon(Icons.download_rounded, size: 18),
+                      label: Text(
+                        info.apkSize > 0
+                            ? 'Download & Install (${(info.apkSize / 1024 / 1024).toStringAsFixed(1)} MB)'
+                            : 'Download & Install Update',
+                      ),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(42),
+                      ),
+                      onPressed: () => ref.read(appUpdateProvider.notifier).downloadAndInstall(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ] else ...[
+            // Up to date state
+            Row(
+              children: [
+                Icon(Icons.check_circle_rounded, size: 20, color: Colors.green.shade600),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'WalletPro is up to date',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                      ),
+                      if (updateState.lastChecked != null)
+                        Text(
+                          'Checked ${DateFormatter.formatFull(updateState.lastChecked!)}',
+                          style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
+                        ),
+                    ],
+                  ),
+                ),
+                OutlinedButton.icon(
+                  icon: updateState.isChecking
+                      ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.refresh, size: 14),
+                  label: Text(updateState.isChecking ? 'Checking...' : 'Check'),
+                  onPressed: updateState.isChecking
+                      ? null
+                      : () => ref.read(appUpdateProvider.notifier).checkForUpdate(userInitiated: true),
+                ),
+              ],
+            ),
+          ],
+
+          if (updateState.errorMessage != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              updateState.errorMessage!,
+              style: TextStyle(fontSize: 12, color: theme.colorScheme.error),
+            ),
+          ],
+
+          const Divider(height: 24),
+
+          // Auto-check switch
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: const Text('Auto-check for updates', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            subtitle: const Text('Notify when a new version is released', style: TextStyle(fontSize: 11)),
+            value: updateState.autoCheckEnabled,
+            onChanged: (val) {
+              ref.read(appUpdateProvider.notifier).setAutoCheckEnabled(val);
+            },
+          ),
+        ],
+      ),
     );
   }
 

@@ -41,19 +41,25 @@ jobs:
       - name: Scaffold Android Scaffolding & Install Dependencies
         working-directory: mobile
         run: |
-          # Backup custom Kotlin files and AndroidManifest
+          # Backup custom Kotlin files, AndroidManifest, and XML resources
           mkdir -p /tmp/backup/kotlin
           cp -rf android/app/src/main/kotlin/com/walletpro/walletpro/* /tmp/backup/kotlin/
           cp -f android/app/src/main/AndroidManifest.xml /tmp/backup/AndroidManifest.xml
+          mkdir -p /tmp/backup/res/xml
+          if [ -d android/app/src/main/res/xml ]; then
+            cp -rf android/app/src/main/res/xml/* /tmp/backup/res/xml/ || true
+          fi
 
           # Cleanly generate Android project files matching Flutter runner version
           rm -rf android
           flutter create --org com.walletpro --project-name walletpro --platforms=android .
 
-          # Restore custom Kotlin files and AndroidManifest
+          # Restore custom Kotlin files, AndroidManifest, and XML resources
           mkdir -p android/app/src/main/kotlin/com/walletpro/walletpro
           cp -rf /tmp/backup/kotlin/* android/app/src/main/kotlin/com/walletpro/walletpro/
           cp -f /tmp/backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          mkdir -p android/app/src/main/res/xml
+          cp -rf /tmp/backup/res/xml/* android/app/src/main/res/xml/ || true
 
           chmod +x android/gradlew || true
           flutter pub get
@@ -104,7 +110,7 @@ jobs:
             echo "Creating new release $TAG..."
             gh release create "$TAG" "releases/$APK_NAME" \
               --title "WalletPro $TAG" \
-              --notes "WalletPro Android Release APK $TAG. Features: Immediate optimistic UI throughout the app with zero full-screen loading spinner flash, instant frame-0 updates with rollback on error, and reactive cross-screen synchronization across Settings, Dashboard, Review Queue, and QuickView."
+              --notes "WalletPro Android Release APK $TAG. Features: In-app auto-update system with GitHub Releases & backend proxy sync, background update notifications, in-settings download streaming & atomic installation, dashboard update banner, and immediate optimistic UI."
           fi
 
       - name: Commit APK to Repository

@@ -359,4 +359,10 @@ class ApiClient {
     );
     return res.data as Map<String, dynamic>;
   }
+
+  /// Fetch latest release information from backend proxy cache
+  Future<Map<String, dynamic>> getLatestRelease() async {
+    final res = await _dio.get('/api/app/latest-release');
+    return res.data as Map<String, dynamic>;
+  }
 }
