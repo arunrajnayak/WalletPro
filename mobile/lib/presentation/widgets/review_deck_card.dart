@@ -60,6 +60,9 @@ class ReviewDeckCard extends StatefulWidget {
   final double approveOpacity;
   final double rejectOpacity;
   final bool highlightMissingFields;
+  final bool isTopCard;
+  final VoidCallback? onApprove;
+  final VoidCallback? onReject;
   final void Function(ReviewDeckCardState state)? onStateChanged;
 
   const ReviewDeckCard({
@@ -70,6 +73,9 @@ class ReviewDeckCard extends StatefulWidget {
     this.approveOpacity = 0.0,
     this.rejectOpacity = 0.0,
     this.highlightMissingFields = false,
+    this.isTopCard = false,
+    this.onApprove,
+    this.onReject,
     this.onStateChanged,
   });
 
@@ -489,7 +495,7 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
             // Scrollable Card Content
             SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -566,42 +572,42 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
                     ],
                   ),
 
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
 
                   // 2. Hero Transaction Info
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Container(
-                        width: 52,
-                        height: 52,
+                        width: 44,
+                        height: 44,
                         decoration: BoxDecoration(
                           color: heroBgColor,
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(13),
                           border: Border.all(
                             color: amountColor.withOpacity(0.3),
                             width: 1.5,
                           ),
                         ),
                         child: Center(
-                          child: Icon(heroIcon, color: amountColor, size: 26),
+                          child: Icon(heroIcon, color: amountColor, size: 22),
                         ),
                       ),
-                      const SizedBox(width: 14),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: Text(
                           counterParty,
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w800,
-                            fontSize: 18,
+                            fontSize: 16,
                             letterSpacing: -0.3,
-                            height: 1.25,
+                            height: 1.2,
                           ),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
                       FittedBox(
                         fit: BoxFit.scaleDown,
                         child: Text(
@@ -609,7 +615,7 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
                           style: TextStyle(
                             color: amountColor,
                             fontWeight: FontWeight.w800,
-                            fontSize: 22,
+                            fontSize: 19,
                             letterSpacing: -0.5,
                           ),
                         ),
@@ -922,16 +928,40 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
 
                   const SizedBox(height: 16),
 
-                  // 6. Subtle Swipe Guide Footnote
-                  Center(
-                    child: Text(
-                      '👈 Swipe left to reject • Swipe right to approve 👉',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: theme.colorScheme.outline.withOpacity(0.8),
-                        fontWeight: FontWeight.w500,
+                  // 6. Action Buttons Inside Card (Thumbs Up / Down)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // 👎 Reject Button
+                      _buildThumbButton(
+                        emoji: '👎',
+                        fallbackIcon: Icons.thumb_down_rounded,
+                        accentColor: const Color(0xFFEF4444),
+                        tooltip: 'Reject',
+                        onTap: widget.isTopCard && widget.onReject != null
+                            ? () {
+                                HapticFeedback.mediumImpact();
+                                widget.onReject!();
+                              }
+                            : null,
                       ),
-                    ),
+
+                      const SizedBox(width: 36),
+
+                      // 👍 Approve / Transfer Button
+                      _buildThumbButton(
+                        emoji: isTransfer ? '⇄' : '👍',
+                        fallbackIcon: isTransfer ? Icons.swap_horiz_rounded : Icons.thumb_up_rounded,
+                        accentColor: const Color(0xFF10B981),
+                        tooltip: isTransfer ? 'Transfer & Sync' : 'Approve & Sync',
+                        onTap: widget.isTopCard && widget.onApprove != null
+                            ? () {
+                                HapticFeedback.mediumImpact();
+                                widget.onApprove!();
+                              }
+                            : null,
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1015,6 +1045,63 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildThumbButton({
+    required String emoji,
+    required IconData fallbackIcon,
+    required Color accentColor,
+    required String tooltip,
+    required VoidCallback? onTap,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isEnabled = onTap != null;
+
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 150),
+            opacity: isEnabled ? 1.0 : 0.4,
+            child: Container(
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                border: Border.all(
+                  color: accentColor.withOpacity(0.5),
+                  width: 2.0,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: accentColor.withOpacity(isDark ? 0.28 : 0.16),
+                    blurRadius: 12,
+                    spreadRadius: 1,
+                    offset: const Offset(0, 4),
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withOpacity(isDark ? 0.4 : 0.06),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  emoji,
+                  style: const TextStyle(fontSize: 26),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );

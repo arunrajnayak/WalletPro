@@ -248,7 +248,7 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
     }
 
     final topItem = suggestions.first as Map<String, dynamic>;
-    final topCardState = _getOrCreateCardState(topItem);
+    _getOrCreateCardState(topItem);
     final screenWidth = MediaQuery.of(context).size.width;
     final dragDx = _dragOffset.dx;
 
@@ -446,6 +446,9 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
                           approveOpacity: approveOpacity,
                           rejectOpacity: rejectOpacity,
                           highlightMissingFields: _highlightMissingFields,
+                          isTopCard: true,
+                          onApprove: _isAnimating ? null : () => _completeSwipe(true),
+                          onReject: _isAnimating ? null : () => _completeSwipe(false),
                           onStateChanged: (st) => _onCardStateChanged(topItem['id'].toString(), st),
                         ),
                       ),
@@ -456,95 +459,7 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
             ),
           ),
         ),
-
-        // 3. Floating Tinder Action Controls Bar (Big Thumbs Buttons)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // 👎 Big Thumbs Down Button (Swipe Left / Reject)
-              _buildBigThumbButton(
-                emoji: '👎',
-                fallbackIcon: Icons.thumb_down_rounded,
-                accentColor: const Color(0xFFEF4444),
-                tooltip: 'Reject (Swipe Left)',
-                onTap: () => _completeSwipe(false),
-              ),
-
-              const SizedBox(width: 36),
-
-              // 👍 Big Thumbs Up Button (Swipe Right / Approve)
-              _buildBigThumbButton(
-                emoji: topCardState.isTransfer ? '⇄' : '👍',
-                fallbackIcon: topCardState.isTransfer ? Icons.swap_horiz_rounded : Icons.thumb_up_rounded,
-                accentColor: const Color(0xFF10B981),
-                tooltip: topCardState.isTransfer ? 'Transfer & Sync (Swipe Right)' : 'Approve & Sync (Swipe Right)',
-                onTap: () => _completeSwipe(true),
-              ),
-            ],
-          ),
-        ),
       ],
-    );
-  }
-
-  Widget _buildBigThumbButton({
-    required String emoji,
-    required IconData fallbackIcon,
-    required Color accentColor,
-    required String tooltip,
-    required VoidCallback onTap,
-  }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final isEnabled = !_isAnimating;
-
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: isEnabled
-              ? () {
-                  HapticFeedback.mediumImpact();
-                  onTap();
-                }
-              : null,
-          customBorder: const CircleBorder(),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: 76,
-            height: 76,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isDark ? const Color(0xFF1E293B) : Colors.white,
-              border: Border.all(
-                color: accentColor.withOpacity(0.4),
-                width: 2.0,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: accentColor.withOpacity(isDark ? 0.25 : 0.18),
-                  blurRadius: 16,
-                  spreadRadius: 2,
-                  offset: const Offset(0, 6),
-                ),
-                BoxShadow(
-                  color: Colors.black.withOpacity(isDark ? 0.45 : 0.08),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: Center(
-              child: Text(
-                emoji,
-                style: const TextStyle(fontSize: 34),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 

@@ -84,7 +84,7 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
         if (mounted) {
           ref.read(pendingCountProvider.notifier).state = pending;
           if (result['created'] != null && result['created']! > 0) {
-            final freshSuggestions = await _api.getSuggestions(status: 'pending', limit: 100);
+            final freshSuggestions = await _api.getSuggestions(status: 'pending');
             if (mounted) {
               ref.read(pendingSuggestionsProvider.notifier).setSuggestions(freshSuggestions);
             }

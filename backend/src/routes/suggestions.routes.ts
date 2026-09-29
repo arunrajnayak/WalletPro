@@ -36,11 +36,21 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
 
   // Show only last 100 records for approved and rejected tabs sorted by date
   const isApprovedOrRejected = status === 'approved' || status === 'rejected';
-  const take = isApprovedOrRejected ? 100 : Math.min(parseInt(limit as string, 10) || 50, 100);
+  let take: number | undefined;
+  if (isApprovedOrRejected) {
+    take = 100;
+  } else if (limit && limit !== 'all') {
+    take = Math.min(parseInt(limit as string, 10) || 500, 1000);
+  } else {
+    take = 1000; // Return all pending cards
+  }
 
   const suggestions = await prisma.suggestion.findMany({
     where: filters,
-    orderBy: { transactionDate: 'desc' },
+    orderBy: [
+      { transactionDate: 'desc' },
+      { createdAt: 'desc' },
+    ],
     take,
     skip: parseInt(offset as string, 10) || 0,
   });

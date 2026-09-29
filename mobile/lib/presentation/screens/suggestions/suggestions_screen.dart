@@ -76,7 +76,10 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
 
     try {
       final futures = await Future.wait([
-        _api.getSuggestions(status: _currentStatusFilter),
+        _api.getSuggestions(
+          status: _currentStatusFilter,
+          limit: _currentStatusFilter == 'pending' ? null : 100,
+        ),
         _api.getWalletCategories(),
         _api.getWalletAccounts(),
         _api.getSuggestionStats().catchError((_) => <String, dynamic>{}),
@@ -94,7 +97,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
         if (_currentStatusFilter == 'pending') {
           ref.read(pendingSuggestionsProvider.notifier).setSuggestions(suggestionsRes);
         } else {
-          _historicalSuggestions = suggestionsRes;
+          _historicalSuggestions = PendingSuggestionsNotifier.sortByDateTime(suggestionsRes);
         }
 
         final int pendingCount = (statsRes['pending'] as num?)?.toInt() ??

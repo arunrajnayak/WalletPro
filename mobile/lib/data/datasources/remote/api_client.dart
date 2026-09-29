@@ -103,7 +103,7 @@ class ApiClient {
   // ----------------------------------------------------
 
   /// Fetch suggestions queue with offline caching fallback
-  Future<List<dynamic>> getSuggestions({String? status, String? source, int limit = 50}) async {
+  Future<List<dynamic>> getSuggestions({String? status, String? source, int? limit}) async {
     final key = 'suggestions_${status ?? 'all'}_${source ?? 'all'}';
     try {
       final res = await _dio.get(
@@ -111,7 +111,7 @@ class ApiClient {
         queryParameters: {
           if (status != null) 'status': status,
           if (source != null) 'source': source,
-          'limit': limit,
+          if (limit != null) 'limit': limit,
         },
       );
       final data = res.data as List<dynamic>;

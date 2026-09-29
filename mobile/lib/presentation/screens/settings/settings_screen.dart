@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../data/datasources/local/notification_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../providers/theme_provider.dart';
@@ -18,7 +17,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final ApiClient _api = ApiClient();
   bool _isLoading = true;
   bool _isSyncing = false;
-  bool _notifListenerEnabled = false;
 
   // Wallet State
   bool _walletConnected = false;
@@ -39,20 +37,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _api.getUserProfile(),
         _api.getWalletAccounts(includeArchived: false),
         _api.getWalletProfile().catchError((_) => <String, dynamic>{}),
-        NotificationService.isNotificationListenerEnabled(),
       ]);
 
       final profile = futures[0] as Map<String, dynamic>;
       final accounts = futures[1] as List<dynamic>;
       final walletProfile = futures[2] as Map<String, dynamic>;
-      final notifEnabled = futures[3] as bool;
 
       if (mounted) {
         ref.read(walletAccountsProvider.notifier).setAccounts(accounts);
         setState(() {
           _walletConnected = profile['walletApiToken'] != null;
           _walletProfile = walletProfile;
-          _notifListenerEnabled = notifEnabled;
           _isLoading = false;
         });
       }
@@ -372,130 +367,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                 const SizedBox(height: 16),
 
-                // 2. Automations & Alerts Card
-                Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surface,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 16,
-                            backgroundColor: theme.colorScheme.primaryContainer,
-                            child: Icon(Icons.bolt, size: 16, color: theme.colorScheme.primary),
-                          ),
-                          const SizedBox(width: 10),
-                          const Text('Automations & Alerts', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-
-                      // Feature 1: Real-time SMS Detection
-                      Row(
-                        children: [
-                          Icon(Icons.mark_email_read_outlined, size: 20, color: theme.colorScheme.primary),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Real-time SMS Scanning', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                                Text('Auto-ingests incoming bank messages (from Sep 1, 2026)', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: Colors.green.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.green.shade300, width: 0.8),
-                            ),
-                            child: Text('Active', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.green.shade900)),
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 24),
-
-                      // Feature 2: 4-Hour Review Reminder
-                      Row(
-                        children: [
-                          Icon(Icons.alarm, size: 20, color: theme.colorScheme.primary),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('4-Hour Review Reminders', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                                Text('Alerts every 4 hours only if reviews are pending', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.blue.shade300, width: 0.8),
-                            ),
-                            child: Text('Every 4 hrs', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue.shade900)),
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 24),
-
-                      // Feature 3: Notification Listener (UPI & Bank App Push Alerts)
-                      Row(
-                        children: [
-                          Icon(Icons.notifications_active_outlined, size: 20, color: theme.colorScheme.primary),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('UPI & Banking Push Alerts', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                                Text('Auto-captures GPay, PhonePe, Paytm, CRED & bank push notifications', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant)),
-                              ],
-                            ),
-                          ),
-                          OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              side: BorderSide(
-                                color: _notifListenerEnabled ? Colors.green : theme.colorScheme.primary,
-                              ),
-                            ),
-                            onPressed: () async {
-                              await NotificationService.openNotificationListenerSettings();
-                              final enabled = await NotificationService.isNotificationListenerEnabled();
-                              if (mounted) setState(() => _notifListenerEnabled = enabled);
-                            },
-                            child: Text(
-                              _notifListenerEnabled ? 'Active ✓' : 'Grant Access',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: _notifListenerEnabled ? Colors.green.shade800 : theme.colorScheme.primary,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // 4. Account Last-4 Digit Mappings Card
+                // 2. Account Last-4 Digit Mappings Card
                 Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(

@@ -25,7 +25,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   final SmsReaderService _smsReader = SmsReaderService();
 
   bool _isLoading = true;
-  bool _isScanning = false;
   String _selectedAccountFilter = 'All'; // 'All' | 'Banks' | 'Credit' | 'Investments'
 
   Map<String, dynamic>? _quickViewData;
@@ -64,13 +63,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
       final stats = futures[0] as Map<String, dynamic>;
       final categories = futures[2] as List<dynamic>;
-      final accounts = futures[3] as List<dynamic>;
+      final localAccounts = futures[3] as List<dynamic>;
       final quickView = futures[4] as Map<String, dynamic>;
       final walletProfile = futures[5] as Map<String, dynamic>;
 
       final int pending = (stats['pending'] as num?)?.toInt() ?? 0;
       ref.read(pendingCountProvider.notifier).state = pending;
       NotificationService.updatePendingCount(pending);
+
+      // Prefer quickView accounts because they contain live balances and colors from BudgetBakers
+      final qvAccounts = (quickView['accounts'] as List<dynamic>?) ?? [];
+      final accounts = qvAccounts.isNotEmpty ? qvAccounts : localAccounts;
 
       AccountSorter.sortAccounts(accounts);
       ref.read(walletAccountsProvider.notifier).setAccounts(accounts);
@@ -87,35 +90,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       if (mounted) {
         setState(() => _isLoading = false);
       }
-    }
-  }
-
-  Future<void> _scanSmsInbox() async {
-    setState(() => _isScanning = true);
-    try {
-      final summary = await _smsReader.scanAndSyncInbox(apiClient: _api);
-      await _loadDashboard(forceRefresh: true);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              summary['created']! > 0
-                  ? 'Found ${summary['created']} new transactions (scanned ${summary['scanned']} SMS)!'
-                  : 'Scanned ${summary['scanned']} SMS from Sep 1, 2026 • No new transactions.',
-            ),
-            duration: const Duration(seconds: 3),
-            backgroundColor: Colors.green.shade700,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('SMS Scan failed: $e'), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isScanning = false);
     }
   }
 
@@ -482,8 +456,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final pendingCount = ref.watch(pendingCountProvider);
     final accounts = ref.watch(walletAccountsProvider);
     final updateState = ref.watch(appUpdateProvider);
 
@@ -593,20 +565,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   // 1. Consolidated Net Worth Hero Glance Card
                   _buildNetWorthHeroCard(netWorth, totalAssets, totalLiabilities),
 
-                  const SizedBox(height: 16),
-
-                  // 2. High-Impact Review Queue Call-To-Action Card (No cluttered review cards)
-                  _buildReviewQueueCtaCard(pendingCount),
-
                   const SizedBox(height: 20),
 
-                  // 3. Consolidated Accounts & Balances Grid (from QuickView)
+                  // 2. Consolidated Accounts & Balances Grid (from QuickView)
                   _buildAccountsSection(accounts, filteredAccounts),
-
-                  const SizedBox(height: 20),
-
-                  // 4. SMS Inbox Sync & Detection Card
-                  _buildSmsScanCard(theme),
                 ],
               ),
             ),
@@ -894,148 +856,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildReviewQueueCtaCard(int pendingCount) {
-    if (pendingCount > 0) {
-      return Container(
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF1E1B4B), Color(0xFF0F172A)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFF6366F1), width: 1.5),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF6366F1).withValues(alpha: 0.25),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF312E81),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(Icons.style_rounded, color: Color(0xFFA5B4FC), size: 24),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Text(
-                            'Review Queue',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF4F46E5),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              '$pendingCount PENDING',
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                                letterSpacing: 0.6,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 3),
-                      const Text(
-                        'Incoming bank & card SMS transactions ready for review.',
-                        style: TextStyle(fontSize: 12, color: Color(0xFFCBD5E1)),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              height: 44,
-              child: FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF4F46E5),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                icon: const Text('👍', style: TextStyle(fontSize: 16)),
-                label: const Text(
-                  'Start Tinder Review Deck →',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                ),
-                onPressed: () => context.push('/suggestions'),
-              ),
-            ),
-          ],
-        ),
-      );
-    } else {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: const Color(0xFF0F172A),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFF1E293B)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.green.shade900.withValues(alpha: 0.3),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.check_circle_rounded, color: Colors.green.shade400, size: 20),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'All Caught Up! 🎉',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
-                  ),
-                  SizedBox(height: 1),
-                  Text(
-                    'Zero pending reviews since Sep 1, 2026',
-                    style: TextStyle(fontSize: 11.5, color: Color(0xFF94A3B8)),
-                  ),
-                ],
-              ),
-            ),
-            TextButton(
-              onPressed: () => context.push('/suggestions'),
-              child: const Text('History', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
-      );
-    }
-  }
-
   Widget _buildAccountsSection(List<dynamic> allAccounts, List<dynamic> filteredAccounts) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1215,63 +1035,4 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildSmsScanCard(ThemeData theme) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0F172A),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF1E293B)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.sms_rounded, size: 18, color: theme.colorScheme.primary),
-                  const SizedBox(width: 8),
-                  const Text('SMS Sync & Detection', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white)),
-                ],
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  'From 1 Sep 2026',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Scans incoming bank and credit card SMS notifications to automatically create transaction suggestions.',
-            style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            height: 44,
-            child: FilledButton.icon(
-              icon: _isScanning
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : const Icon(Icons.sync_rounded, size: 18),
-              label: Text(_isScanning ? 'Scanning Inbox...' : 'Scan New SMS Inbox'),
-              onPressed: _isScanning ? null : _scanSmsInbox,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
