@@ -953,9 +953,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               final acc = filteredAccounts[index];
               final name = acc['name'] ?? 'Account';
               final balance = (acc['balance'] as num?)?.toDouble() ?? 0.0;
-              final last4 = acc['last4Digits']?.toString();
-              final isNone = last4 == 'NONE';
-              final isMapped = last4 != null && !isNone && last4.trim().isNotEmpty;
               final color = _getAccountColor(acc['color'], index);
               final icon = _getAccountIcon(name, acc['accountType']);
 
@@ -980,32 +977,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          CircleAvatar(
-                            radius: 14,
-                            backgroundColor: color.withValues(alpha: 0.2),
-                            child: Icon(icon, size: 14, color: color),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: isMapped
-                                  ? Colors.green.shade900.withValues(alpha: 0.3)
-                                  : (isNone ? Colors.grey.shade800 : Colors.orange.shade900.withValues(alpha: 0.2)),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              isMapped ? '•••• $last4' : (isNone ? 'No Map' : 'Unmapped'),
-                              style: TextStyle(
-                                fontSize: 9.5,
-                                fontWeight: FontWeight.bold,
-                                color: isMapped ? Colors.green.shade300 : (isNone ? Colors.grey.shade400 : Colors.orange.shade300),
-                              ),
-                            ),
-                          ),
-                        ],
+                      CircleAvatar(
+                        radius: 14,
+                        backgroundColor: color.withValues(alpha: 0.2),
+                        child: Icon(icon, size: 14, color: color),
                       ),
                       Text(
                         name,

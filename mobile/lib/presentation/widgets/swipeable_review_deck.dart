@@ -91,6 +91,51 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
     if (_initialCount == 0 && widget.suggestions.isNotEmpty) {
       _initialCount = widget.suggestions.length;
     }
+    if (oldWidget.accounts != widget.accounts || oldWidget.suggestions != widget.suggestions) {
+      _refreshCardStatesForAccounts();
+    }
+  }
+
+  void _refreshCardStatesForAccounts() {
+    for (final s in widget.suggestions) {
+      if (s is! Map) continue;
+      final id = s['id']?.toString();
+      if (id == null) continue;
+      final last4 = (s['accountLast4'] ?? '').toString().trim();
+
+      dynamic matchedAccount;
+      if (last4.isNotEmpty && last4.toUpperCase() != 'NONE') {
+        matchedAccount = widget.accounts.firstWhere(
+          (acc) {
+            final accLast4 = (acc['last4Digits'] ?? '').toString().trim();
+            if (accLast4.isEmpty || accLast4.toUpperCase() == 'NONE') return false;
+            final digitsList = accLast4.split(RegExp(r'[,;\s]+')).map((d) => d.trim()).toList();
+            return digitsList.contains(last4) || accLast4 == last4;
+          },
+          orElse: () => null,
+        );
+      }
+
+      final existingState = _cardStates[id];
+      if (existingState != null) {
+        if (matchedAccount != null) {
+          existingState.selectedAccountId = matchedAccount['walletAccountId'] ?? matchedAccount['id'];
+          existingState.selectedAccountName = matchedAccount['name'];
+        } else if (s['walletAccountId'] != null) {
+          final acc = widget.accounts.firstWhere(
+            (a) => a['walletAccountId'] == s['walletAccountId'] || a['id'] == s['walletAccountId'],
+            orElse: () => null,
+          );
+          if (acc != null) {
+            existingState.selectedAccountId = acc['walletAccountId'] ?? acc['id'];
+            existingState.selectedAccountName = acc['name'];
+          }
+        }
+      }
+    }
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   @override
@@ -103,10 +148,40 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
     final id = suggestion['id'].toString();
     if (!_cardStates.containsKey(id)) {
       final type = (suggestion['transactionType'] ?? 'expense').toString().toLowerCase();
+      String? accountId = suggestion['walletAccountId'];
+      String? accountName = suggestion['walletAccountName'];
+
+      final last4 = (suggestion['accountLast4'] ?? '').toString().trim();
+      if (last4.isNotEmpty && last4.toUpperCase() != 'NONE') {
+        final match = widget.accounts.firstWhere(
+          (acc) {
+            final accLast4 = (acc['last4Digits'] ?? '').toString().trim();
+            if (accLast4.isEmpty || accLast4.toUpperCase() == 'NONE') return false;
+            final digitsList = accLast4.split(RegExp(r'[,;\s]+')).map((d) => d.trim()).toList();
+            return digitsList.contains(last4) || accLast4 == last4;
+          },
+          orElse: () => null,
+        );
+        if (match != null) {
+          accountId = match['walletAccountId'] ?? match['id'];
+          accountName = match['name'];
+        }
+      }
+
+      if (accountId != null && accountName == null) {
+        final match = widget.accounts.firstWhere(
+          (acc) => (acc['walletAccountId'] == accountId || acc['id'] == accountId),
+          orElse: () => null,
+        );
+        if (match != null) {
+          accountName = match['name'];
+        }
+      }
+
       _cardStates[id] = ReviewDeckCardState(
         transactionType: type == 'income' || type == 'transfer' ? type : 'expense',
-        selectedAccountId: suggestion['walletAccountId'],
-        selectedAccountName: suggestion['walletAccountName'],
+        selectedAccountId: accountId,
+        selectedAccountName: accountName,
         selectedCategoryId: suggestion['walletCategoryId'],
         selectedCategoryName: suggestion['walletCategoryName'],
       );

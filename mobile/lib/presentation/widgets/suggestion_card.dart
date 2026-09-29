@@ -49,48 +49,75 @@ class _SuggestionCardState extends State<SuggestionCard> {
   @override
   void initState() {
     super.initState();
-    _transactionType = (widget.suggestion['transactionType'] ?? 'expense').toString().toLowerCase();
-    if (_transactionType != 'expense' && _transactionType != 'income' && _transactionType != 'transfer') {
-      _transactionType = 'expense';
+    _initFromSuggestion();
+  }
+
+  @override
+  void didUpdateWidget(covariant SuggestionCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.suggestion['id'] != widget.suggestion['id'] ||
+        oldWidget.suggestion['walletAccountId'] != widget.suggestion['walletAccountId'] ||
+        oldWidget.suggestion['walletCategoryId'] != widget.suggestion['walletCategoryId'] ||
+        oldWidget.accounts != widget.accounts) {
+      _initFromSuggestion();
+    }
+  }
+
+  void _initFromSuggestion() {
+    void apply() {
+      _transactionType = (widget.suggestion['transactionType'] ?? 'expense').toString().toLowerCase();
+      if (_transactionType != 'expense' && _transactionType != 'income' && _transactionType != 'transfer') {
+        _transactionType = 'expense';
+      }
+
+      _selectedCategoryId = widget.suggestion['walletCategoryId'];
+      _selectedCategoryName = widget.suggestion['walletCategoryName'];
+      _selectedAccountId = widget.suggestion['walletAccountId'];
+
+      // If account not mapped or matches newly mapped digits, try matching by last 4 digits
+      final last4 = widget.suggestion['accountLast4']?.toString().trim();
+      if (last4 != null && last4.isNotEmpty && last4.toUpperCase() != 'NONE') {
+        final match = widget.accounts.firstWhere(
+          (acc) {
+            final accLast4 = acc['last4Digits']?.toString().trim();
+            if (accLast4 == null || accLast4.isEmpty || accLast4.toUpperCase() == 'NONE') return false;
+            final digitsList = accLast4.split(RegExp(r'[,;\s]+')).map((s) => s.trim()).toList();
+            return digitsList.contains(last4) || accLast4 == last4;
+          },
+          orElse: () => null,
+        );
+        if (match != null) {
+          _selectedAccountId = match['walletAccountId'] ?? match['id'];
+          _selectedAccountName = match['name'];
+        }
+      }
+
+      if (_selectedAccountId != null && _selectedAccountName == null) {
+        final match = widget.accounts.firstWhere(
+          (acc) => (acc['walletAccountId'] == _selectedAccountId || acc['id'] == _selectedAccountId),
+          orElse: () => null,
+        );
+        if (match != null) {
+          _selectedAccountName = match['name'];
+        }
+      }
+
+      // Fallback category name if id is present
+      if (_selectedCategoryId != null && _selectedCategoryName == null) {
+        final catMatch = widget.categories.firstWhere(
+          (cat) => (cat['walletCategoryId'] == _selectedCategoryId || cat['id'] == _selectedCategoryId),
+          orElse: () => null,
+        );
+        if (catMatch != null) {
+          _selectedCategoryName = catMatch['name'];
+        }
+      }
     }
 
-    _selectedCategoryId = widget.suggestion['walletCategoryId'];
-    _selectedCategoryName = widget.suggestion['walletCategoryName'];
-    _selectedAccountId = widget.suggestion['walletAccountId'];
-
-    // If account not mapped, try matching by last 4 digits
-    final last4 = widget.suggestion['accountLast4']?.toString().trim();
-    if (_selectedAccountId == null && last4 != null && last4.isNotEmpty && last4 != 'NONE') {
-      final match = widget.accounts.firstWhere(
-        (acc) {
-          final accLast4 = acc['last4Digits']?.toString().trim();
-          return accLast4 != null && accLast4.isNotEmpty && accLast4 != 'NONE' && accLast4 == last4;
-        },
-        orElse: () => null,
-      );
-      if (match != null) {
-        _selectedAccountId = match['walletAccountId'] ?? match['id'];
-        _selectedAccountName = match['name'];
-      }
-    } else if (_selectedAccountId != null) {
-      final match = widget.accounts.firstWhere(
-        (acc) => (acc['walletAccountId'] == _selectedAccountId || acc['id'] == _selectedAccountId),
-        orElse: () => null,
-      );
-      if (match != null) {
-        _selectedAccountName = match['name'];
-      }
-    }
-
-    // Fallback category name if id is present
-    if (_selectedCategoryId != null && _selectedCategoryName == null) {
-      final catMatch = widget.categories.firstWhere(
-        (cat) => (cat['walletCategoryId'] == _selectedCategoryId || cat['id'] == _selectedCategoryId),
-        orElse: () => null,
-      );
-      if (catMatch != null) {
-        _selectedCategoryName = catMatch['name'];
-      }
+    if (mounted) {
+      setState(apply);
+    } else {
+      apply();
     }
   }
 

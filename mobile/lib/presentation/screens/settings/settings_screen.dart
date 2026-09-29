@@ -5,6 +5,7 @@ import '../../../core/utils/date_formatter.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../providers/app_update_provider.dart';
+import '../../providers/suggestions_provider.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -168,6 +169,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (result == 'DONT_MAP') {
       // 1. Immediate optimistic update in shared reactive state
       ref.read(walletAccountsProvider.notifier).updateMapping(accountId, 'NONE');
+      ref.read(pendingSuggestionsProvider.notifier).refreshAccountMappings(ref.read(walletAccountsProvider));
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -191,6 +193,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       } catch (e) {
         // 3. Rollback on failure
         ref.read(walletAccountsProvider.notifier).updateMapping(accountId, previousLast4);
+        ref.read(pendingSuggestionsProvider.notifier).refreshAccountMappings(ref.read(walletAccountsProvider));
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -206,6 +209,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
       // 1. Immediate optimistic update in shared reactive state
       ref.read(walletAccountsProvider.notifier).updateMapping(accountId, newLast4);
+      ref.read(pendingSuggestionsProvider.notifier).refreshAccountMappings(ref.read(walletAccountsProvider));
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -231,6 +235,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       } catch (e) {
         // 3. Rollback on failure
         ref.read(walletAccountsProvider.notifier).updateMapping(accountId, previousLast4);
+        ref.read(pendingSuggestionsProvider.notifier).refreshAccountMappings(ref.read(walletAccountsProvider));
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(

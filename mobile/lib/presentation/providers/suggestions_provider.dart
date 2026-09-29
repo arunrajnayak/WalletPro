@@ -52,6 +52,37 @@ class PendingSuggestionsNotifier extends StateNotifier<List<dynamic>> {
     ];
     state = sortByDateTime(updated);
   }
+
+  /// When account mappings change, re-match all pending suggestions in memory
+  void refreshAccountMappings(List<dynamic> accounts) {
+    if (state.isEmpty) return;
+    final updated = state.map((item) {
+      if (item is! Map) return item;
+      final map = Map<String, dynamic>.from(item);
+      final rawLast4 = (map['accountLast4'] ?? '').toString().trim();
+      if (rawLast4.isEmpty || rawLast4.toUpperCase() == 'NONE') return map;
+
+      // Find matching account by last 4 digits
+      dynamic matchedAccount;
+      for (final acc in accounts) {
+        if (acc is! Map) continue;
+        final last4Digits = (acc['last4Digits'] ?? '').toString().trim();
+        if (last4Digits.isEmpty || last4Digits.toUpperCase() == 'NONE') continue;
+        final digitsList = last4Digits.split(RegExp(r'[,;\s]+')).map((s) => s.trim()).toList();
+        if (digitsList.contains(rawLast4) || last4Digits == rawLast4) {
+          matchedAccount = acc;
+          break;
+        }
+      }
+
+      if (matchedAccount != null) {
+        map['walletAccountId'] = matchedAccount['walletAccountId'] ?? matchedAccount['id'];
+        map['walletAccountName'] = matchedAccount['name'];
+      }
+      return map;
+    }).toList();
+    state = sortByDateTime(updated);
+  }
 }
 
 final pendingSuggestionsProvider =

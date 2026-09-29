@@ -353,6 +353,36 @@ router.patch('/accounts/:id/map-last4', authenticate, async (req: Request, res: 
     data: { last4Digits: cleanedDigits },
   });
 
+  // When mapping changes, update pending suggestions for the user:
+  // 1. Clear previous mappings pointing to this account if digits changed or removed
+  await prisma.suggestion.updateMany({
+    where: {
+      userId,
+      status: 'pending',
+      walletAccountId: account.walletAccountId,
+    },
+    data: {
+      walletAccountId: null,
+    },
+  });
+
+  // 2. If valid digits provided (and not NONE), link all pending suggestions matching these digits
+  if (cleanedDigits && cleanedDigits !== 'NONE') {
+    const digits = cleanedDigits.split(/[,;\s]+/).map(d => d.trim()).filter(d => d.length >= 2);
+    if (digits.length > 0) {
+      await prisma.suggestion.updateMany({
+        where: {
+          userId,
+          status: 'pending',
+          accountLast4: { in: digits },
+        },
+        data: {
+          walletAccountId: account.walletAccountId,
+        },
+      });
+    }
+  }
+
   res.json(account);
 });
 
