@@ -45,7 +45,9 @@ class SmsReaderService {
     }
   }
 
-  /// High-level function: scan inbox from 1st September 2026, parse bank transactions, and send them to backend
+  /// High-level function: scan inbox from the last 7 days, parse bank transactions, and send them to backend.
+  /// The effective start is the later of (now - 7 days) and [hardcodedStartDate], so we never go further
+  /// back than the hardcoded floor date.
   Future<Map<String, int>> scanAndSyncInbox({
     required ApiClient apiClient,
     void Function(int current, int total)? onProgress,
@@ -58,7 +60,11 @@ class SmsReaderService {
       }
     }
 
-    final rawMessages = await readInbox(sinceDate: hardcodedStartDate, limit: 500);
+    // Roll a 7-day window, but never before hardcodedStartDate
+    final sevenDaysAgo = DateTime.now().toUtc().subtract(const Duration(days: 7));
+    final effectiveSince = sevenDaysAgo.isAfter(hardcodedStartDate) ? sevenDaysAgo : hardcodedStartDate;
+
+    final rawMessages = await readInbox(sinceDate: effectiveSince, limit: 200);
     int detected = 0;
     int created = 0;
 
@@ -72,7 +78,7 @@ class SmsReaderService {
         onProgress(i + 1, rawMessages.length);
       }
 
-      if (msgDate.isBefore(hardcodedStartDate)) {
+      if (msgDate.isBefore(effectiveSince)) {
         continue;
       }
 

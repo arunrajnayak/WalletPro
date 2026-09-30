@@ -348,7 +348,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen>
             content: Text(
               summary['created']! > 0
                   ? 'Found ${summary['created']} new transactions (scanned ${summary['scanned']} SMS)!'
-                  : 'Scanned ${summary['scanned']} SMS from Sep 1, 2026 • No new transactions.',
+                  : 'Scanned ${summary['scanned']} SMS from last 7 days • No new transactions.',
             ),
             backgroundColor: Colors.green.shade700,
             duration: const Duration(seconds: 4),
@@ -576,7 +576,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen>
                                           const SizedBox(height: 8),
                                           Text(
                                             _currentStatusFilter == 'pending'
-                                                ? 'No pending SMS transactions since Sep 1, 2026.'
+                                                ? 'No pending SMS transactions in the last 7 days.'
                                                 : 'Transactions will appear here once reviewed.',
                                             style: theme.textTheme.bodySmall?.copyWith(
                                               color: theme.colorScheme.onSurfaceVariant,
