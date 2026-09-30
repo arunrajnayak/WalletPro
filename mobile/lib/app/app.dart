@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/utils/stats_parser.dart';
 import '../data/datasources/local/notification_service.dart';
 import '../data/datasources/local/sms_service.dart';
 import '../data/datasources/remote/api_client.dart';
@@ -73,7 +74,7 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
   Future<void> _refreshPendingQueue() async {
     try {
       final stats = await _api.getSuggestionStats();
-      final int pending = (stats['pending'] as num?)?.toInt() ?? 0;
+      final int pending = parseStatCount(stats['pending']);
       if (mounted) {
         ref.read(pendingCountProvider.notifier).state = pending;
         final freshSuggestions = await _api.getSuggestions(status: 'pending');
@@ -96,7 +97,7 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
         final result = await _smsReader.scanAndSyncInbox(apiClient: _api);
         // Refresh pending count
         final stats = await _api.getSuggestionStats();
-        final int pending = (stats['pending'] as num?)?.toInt() ?? 0;
+        final int pending = parseStatCount(stats['pending']);
         if (mounted) {
           ref.read(pendingCountProvider.notifier).state = pending;
           if (result['created'] != null && result['created']! > 0) {

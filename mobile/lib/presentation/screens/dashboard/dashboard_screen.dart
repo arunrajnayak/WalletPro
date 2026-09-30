@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../core/utils/account_sorter.dart';
+import '../../../core/utils/stats_parser.dart';
 import '../../../data/datasources/local/notification_service.dart';
 import '../../../data/datasources/local/update_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
@@ -52,7 +53,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       final quickView = futures[4] as Map<String, dynamic>;
       final walletProfile = futures[5] as Map<String, dynamic>;
 
-      final int pending = (stats['pending'] as num?)?.toInt() ?? 0;
+      final int pending = parseStatCount(stats['pending']);
       ref.read(pendingCountProvider.notifier).state = pending;
       NotificationService.updatePendingCount(pending);
 

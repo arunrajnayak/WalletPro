@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/utils/account_sorter.dart';
+import '../../../core/utils/stats_parser.dart';
 import '../../../data/datasources/local/notification_service.dart';
 import '../../../data/datasources/local/sms_service.dart';
 import '../../../data/datasources/remote/api_client.dart';
@@ -20,7 +21,8 @@ class SuggestionsScreen extends ConsumerStatefulWidget {
   ConsumerState<SuggestionsScreen> createState() => _SuggestionsScreenState();
 }
 
-class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with SingleTickerProviderStateMixin {
+class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final ApiClient _api = ApiClient();
   final SmsReaderService _smsReader = SmsReaderService();
   late TabController _tabController;
@@ -32,9 +34,14 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
 
   List<dynamic> _historicalSuggestions = [];
 
+  // Tracks last known pending count to detect new-card arrivals reactively
+  int _lastKnownPendingLength = 0;
+  bool _initialLoadDone = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
@@ -53,8 +60,18 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _tabController.dispose();
     super.dispose();
+  }
+
+  /// Silently refresh when the app comes back to foreground
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _api.clearSuggestionsCache();
+      _loadData();
+    }
   }
 
   String get _currentStatusFilter {
@@ -69,6 +86,8 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
   }
 
   Future<void> _loadData() async {
+    // Always bust suggestion cache so freshest data is fetched
+    _api.clearSuggestionsCache();
     setState(() {
       _isLoading = true;
       _error = null;
@@ -100,13 +119,21 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
           _historicalSuggestions = PendingSuggestionsNotifier.sortByDateTime(suggestionsRes);
         }
 
-        final int pendingCount = (statsRes['pending'] as num?)?.toInt() ??
-            (_currentStatusFilter == 'pending' ? suggestionsRes.length : ref.read(pendingCountProvider));
+        final int pendingCount = parseStatCount(
+          statsRes['pending'],
+          fallback: _currentStatusFilter == 'pending'
+              ? suggestionsRes.length
+              : ref.read(pendingCountProvider),
+        );
         ref.read(pendingCountProvider.notifier).state = pendingCount;
         NotificationService.updatePendingCount(pendingCount);
 
         setState(() {
           _isLoading = false;
+          _initialLoadDone = true;
+          _lastKnownPendingLength = _currentStatusFilter == 'pending'
+              ? suggestionsRes.length
+              : _lastKnownPendingLength;
         });
       }
     } catch (e) {
@@ -342,6 +369,35 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
     }
   }
 
+  /// Called during build whenever pendingSuggestions changes.
+  /// Shows a snackbar if new cards were pushed in reactively (e.g. by background scan).
+  void _onNewSuggestionsArrived(List<dynamic> suggestions) {
+    if (!_initialLoadDone || _isLoading || _currentStatusFilter != 'pending') return;
+    if (suggestions.length > _lastKnownPendingLength) {
+      final added = suggestions.length - _lastKnownPendingLength;
+      _lastKnownPendingLength = suggestions.length;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.fiber_new_rounded, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Text('$added new transaction${added > 1 ? 's' : ''} ready to review!'),
+              ],
+            ),
+            backgroundColor: Colors.green.shade700,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      });
+    } else {
+      _lastKnownPendingLength = suggestions.length;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -351,6 +407,10 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
     final categories = ref.watch(walletCategoriesProvider);
     final isApprovedOrRejected = _currentStatusFilter != 'pending';
     final currentSuggestions = isApprovedOrRejected ? _historicalSuggestions : pendingSuggestions;
+
+    // Reactively detect new suggestions pushed in from background scan
+    _onNewSuggestionsArrived(pendingSuggestions);
+
 
     return Scaffold(
       appBar: AppBar(
@@ -423,6 +483,14 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
       ),
       body: Column(
         children: [
+          // Thin scanning indicator — shown while SMS scan is in progress
+          if (_isScanning)
+            LinearProgressIndicator(
+              minHeight: 2,
+              backgroundColor: Colors.transparent,
+              color: theme.colorScheme.primary,
+            ),
+
           // Informational bar for approved / rejected tabs capping at 100
           if (isApprovedOrRejected && currentSuggestions.isNotEmpty)
             Container(
@@ -520,6 +588,14 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> with Sing
                                             label: const Text('Refresh'),
                                             onPressed: _loadData,
                                           ),
+                                          if (_currentStatusFilter == 'pending') ...[
+                                            const SizedBox(height: 12),
+                                            OutlinedButton.icon(
+                                              icon: const Icon(Icons.sms_outlined),
+                                              label: const Text('Scan SMS Inbox'),
+                                              onPressed: _isScanning ? null : _scanSmsInbox,
+                                            ),
+                                          ],
                                         ],
                                       ),
                                     ),
