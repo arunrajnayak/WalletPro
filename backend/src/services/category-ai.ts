@@ -25,15 +25,32 @@ export class CategoryAI {
     type: 'income' | 'expense'
   ): Promise<{ categoryId: string | null; categoryName?: string; confidence: number }> {
     // 1. Check local learning history first
-    if (counterParty) {
+    if (counterParty && counterParty.trim().length > 0) {
+      const normalized = counterParty.trim().toLowerCase();
       const history = await prisma.merchantCategory.findUnique({
-        where: { userId_merchantName: { userId, merchantName: counterParty } }
+        where: { userId_merchantName: { userId, merchantName: normalized } }
       });
       if (history) {
         return {
           categoryId: history.walletCategoryId,
           categoryName: history.walletCategoryName || undefined,
           confidence: 0.95
+        };
+      }
+
+      // Partial match fallback for merchant names (e.g. "Swiggy Instamart" -> "swiggy")
+      const partial = await prisma.merchantCategory.findFirst({
+        where: {
+          userId,
+          merchantName: { contains: normalized, mode: 'insensitive' }
+        },
+        orderBy: { usageCount: 'desc' }
+      });
+      if (partial) {
+        return {
+          categoryId: partial.walletCategoryId,
+          categoryName: partial.walletCategoryName || undefined,
+          confidence: 0.85
         };
       }
     }
@@ -95,10 +112,11 @@ Respond strictly in valid JSON format:
     walletCategoryId: string,
     walletCategoryName?: string
   ) {
-    if (!merchantName) return;
+    if (!merchantName || !merchantName.trim()) return;
+    const normalized = merchantName.trim().toLowerCase();
 
     await prisma.merchantCategory.upsert({
-      where: { userId_merchantName: { userId, merchantName } },
+      where: { userId_merchantName: { userId, merchantName: normalized } },
       update: { 
         walletCategoryId, 
         walletCategoryName: walletCategoryName || undefined,
@@ -107,7 +125,7 @@ Respond strictly in valid JSON format:
       },
       create: {
         userId,
-        merchantName,
+        merchantName: normalized,
         walletCategoryId,
         walletCategoryName: walletCategoryName || undefined,
       }

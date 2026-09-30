@@ -1,8 +1,7 @@
 import cron from 'node-cron';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../prisma';
 import { PortfolioTracker } from '../services/portfolio-tracker';
 
-const prisma = new PrismaClient();
 const portfolioTracker = new PortfolioTracker();
 
 export const startNavWorker = () => {

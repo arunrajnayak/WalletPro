@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { authenticate } from '../middleware/auth';
 import { prisma } from '../prisma';
-import { WalletClient } from '../services/wallet-client';
+import { WalletClient, CreateRecordRequest } from '../services/wallet-client';
 
 const router = Router();
 
@@ -490,4 +490,143 @@ router.post('/sync', authenticate, async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/wallet/records - Create financial records in batch (1 to 50)
+router.post('/records', authenticate, async (req: Request, res: Response) => {
+  const userId = req.user.id;
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || !user.walletApiToken) {
+    return res.status(400).json({ error: 'Wallet not connected' });
+  }
+
+  const { records } = req.body;
+  if (!Array.isArray(records) || records.length === 0) {
+    return res.status(400).json({ error: 'records array is required' });
+  }
+
+  try {
+    const client = new WalletClient(user.walletApiToken);
+    const result = await client.createRecords(records);
+    res.json(result);
+  } catch (err: any) {
+    console.error('Create records error:', err.response?.data || err.message);
+    res.status(500).json({ error: 'Failed to create records', details: err.response?.data || err.message });
+  }
+});
+
+// POST /api/wallet/accounts/:id/update-balance - Manually update investment account value by recording an income/expense record
+router.post('/accounts/:id/update-balance', authenticate, async (req: Request, res: Response) => {
+  const userId = req.user.id;
+  const id = req.params.id as string;
+  const { newValue, currentValue: clientCurrentValue, note, recordDate } = req.body;
+
+  if (typeof newValue !== 'number' || isNaN(newValue) || newValue < 0) {
+    return res.status(400).json({ error: 'Valid positive newValue is required' });
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || !user.walletApiToken) {
+    return res.status(400).json({ error: 'Wallet not connected' });
+  }
+
+  // Find account in DB or Wallet API
+  const account = await prisma.walletAccount.findFirst({
+    where: {
+      userId,
+      OR: [
+        { id },
+        { walletAccountId: id },
+      ],
+    },
+  });
+
+  const walletAccountId = account?.walletAccountId || id;
+  const accountName = account?.name || 'Investment Account';
+
+  try {
+    const client = new WalletClient(user.walletApiToken);
+
+    // Determine current balance: if client passed currentValue, use it; otherwise fetch from Wallet API
+    let currentBal = typeof clientCurrentValue === 'number' ? clientCurrentValue : 0;
+    if (typeof clientCurrentValue !== 'number') {
+      const allAccs = await client.getAllAccounts();
+      const match = allAccs.find(a => a.id === walletAccountId);
+      if (match && typeof match.balance === 'number') {
+        currentBal = match.balance;
+      }
+    }
+
+    const diff = Number((newValue - currentBal).toFixed(2));
+    if (diff === 0) {
+      return res.status(400).json({ error: 'New value is identical to current balance' });
+    }
+
+    const isIncome = diff > 0;
+    const signedAmount = diff; // positive for income (+diff), negative for expense (-abs(diff))
+
+    // Resolve category "Investment value update" under "Investments"
+    const catCache = await prisma.walletCategoryCache.findFirst({
+      where: {
+        userId,
+        name: { equals: 'Investment value update', mode: 'insensitive' },
+      },
+    });
+    const categoryId = catCache?.walletCategoryId || '5c5c2328-005a-8000-8000-000000000000';
+
+    const txDate = recordDate ? new Date(recordDate) : new Date();
+
+    const recordReq: CreateRecordRequest = {
+      accountId: walletAccountId,
+      amount: signedAmount,
+      recordDate: txDate.toISOString(),
+      categoryId,
+      note: note || `Investment value update: ${accountName}`,
+      recordState: 'cleared',
+    };
+
+    const batchResult = await client.createRecords([recordReq]);
+
+    if (!batchResult.results || !batchResult.results[0] || !batchResult.results[0].success) {
+      const err = batchResult.results?.[0]?.error || 'Failed to create record in Wallet';
+      return res.status(500).json({ error: err, details: batchResult });
+    }
+
+    const walletRecordId = batchResult.results[0].id;
+
+    // Record in local suggestions as synced for audit history
+    await prisma.suggestion.create({
+      data: {
+        userId,
+        source: 'manual',
+        status: 'synced',
+        amount: Math.abs(diff),
+        currencyCode: account?.currencyCode || 'INR',
+        transactionType: isIncome ? 'income' : 'expense',
+        counterParty: 'Investment value update',
+        note: note || `Investment value update: ${accountName}`,
+        walletAccountId,
+        walletCategoryId: categoryId,
+        walletCategoryName: 'Investment value update',
+        walletRecordId,
+        transactionDate: txDate,
+        actionedAt: new Date(),
+      },
+    }).catch(err => {
+      console.warn('Could not create suggestion history entry:', err.message);
+    });
+
+    res.json({
+      success: true,
+      diff,
+      transactionType: isIncome ? 'income' : 'expense',
+      oldValue: currentBal,
+      newValue,
+      walletRecordId,
+    });
+  } catch (err: any) {
+    console.error('Update balance error:', err.response?.data || err.message);
+    res.status(500).json({ error: 'Failed to update investment value', details: err.response?.data || err.message });
+  }
+});
+
 export default router;
+

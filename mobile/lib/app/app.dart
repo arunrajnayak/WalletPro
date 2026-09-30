@@ -29,7 +29,7 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
 
     // Initialize notification service and listen for real-time transaction detection
     NotificationService.init(onTransactionDetected: () {
-      _triggerAutoScan();
+      _refreshPendingQueue();
     });
 
     // Check if app was launched via notification click
@@ -67,6 +67,22 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
     } catch (_) {
       // Ignore background auto-update check errors
     }
+  }
+
+  /// Lightweight refresh when real-time SMS arrives (avoids 500-message inbox scan)
+  Future<void> _refreshPendingQueue() async {
+    try {
+      final stats = await _api.getSuggestionStats();
+      final int pending = (stats['pending'] as num?)?.toInt() ?? 0;
+      if (mounted) {
+        ref.read(pendingCountProvider.notifier).state = pending;
+        final freshSuggestions = await _api.getSuggestions(status: 'pending');
+        if (mounted) {
+          ref.read(pendingSuggestionsProvider.notifier).setSuggestions(freshSuggestions);
+        }
+      }
+      await NotificationService.updatePendingCount(pending);
+    } catch (_) {}
   }
 
   /// Automatically scan inbox in the background without user interaction

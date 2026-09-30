@@ -108,7 +108,7 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
   @override
   void initState() {
     super.initState();
-    _initFromSuggestion();
+    _initFromSuggestion(notify: true, triggerSetState: false);
   }
 
   @override
@@ -118,7 +118,7 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
         oldWidget.suggestion['walletAccountId'] != widget.suggestion['walletAccountId'] ||
         oldWidget.suggestion['walletCategoryId'] != widget.suggestion['walletCategoryId'] ||
         oldWidget.accounts != widget.accounts) {
-      _initFromSuggestion();
+      _initFromSuggestion(notify: true, triggerSetState: true);
     }
   }
 
@@ -141,7 +141,7 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
     } catch (_) {}
   }
 
-  void _initFromSuggestion() {
+  void _initFromSuggestion({bool notify = true, bool triggerSetState = false}) {
     void apply() {
       _transactionType = (widget.suggestion['transactionType'] ?? 'expense').toString().toLowerCase();
       if (_transactionType != 'expense' && _transactionType != 'income' && _transactionType != 'transfer') {
@@ -192,13 +192,15 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
       }
     }
 
-    if (mounted) {
+    if (triggerSetState && mounted) {
       setState(apply);
     } else {
       apply();
     }
 
-    _notifyStateChanged();
+    if (notify) {
+      _notifyStateChanged();
+    }
     _loadRecentCategoriesForAccount(_selectedAccountId);
   }
 
@@ -209,6 +211,7 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
       selectedCategoryId: _selectedCategoryId,
       recentCategories: _recentCategories,
     );
+    if (!mounted) return;
     if (cat != null) {
       setState(() {
         _selectedCategoryId = cat['walletCategoryId'];
@@ -421,6 +424,7 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
       },
     );
 
+    if (!mounted) return;
     if (acc != null) {
       setState(() {
         if (isTarget) {

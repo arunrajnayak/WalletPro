@@ -55,9 +55,13 @@ class WalletNotificationListenerService : NotificationListenerService() {
 
     private fun isFinancialOrMessagingApp(packageName: String): Boolean {
         val lower = packageName.lowercase()
-        return lower.contains("messaging") ||
-                lower.contains("mms") ||
-                lower.contains("paisa") || // Google Pay
+
+        // Exclude SMS apps: real-time incoming SMS is already handled natively by SmsReceiver
+        if (lower.contains("messaging") || lower.contains("mms") || lower.endsWith(".mms")) {
+            return false
+        }
+
+        return lower.contains("paisa") || // Google Pay
                 lower.contains("phonepe") ||
                 lower.contains("paytm") ||
                 lower.contains("cred") ||

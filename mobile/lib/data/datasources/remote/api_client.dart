@@ -11,10 +11,22 @@ class _CacheItem {
 }
 
 class ApiClient {
+  static ApiClient? _instance;
   final Dio _dio;
   static final Map<String, _CacheItem> _cache = {};
 
-  ApiClient({String? baseUrl, String? apiKey})
+  factory ApiClient({String? baseUrl, String? apiKey}) {
+    if (_instance == null || baseUrl != null || apiKey != null) {
+      final client = ApiClient._internal(baseUrl: baseUrl, apiKey: apiKey);
+      if (baseUrl == null && apiKey == null) {
+        _instance = client;
+      }
+      return client;
+    }
+    return _instance!;
+  }
+
+  ApiClient._internal({String? baseUrl, String? apiKey})
       : _dio = Dio(
           BaseOptions(
             baseUrl: baseUrl ?? ApiConstants.backendBaseUrl,
@@ -58,9 +70,19 @@ class ApiClient {
     LocalCache.setJson(key, data);
   }
 
+  /// Scoped cache eviction to preserve static metadata (categories, accounts)
+  void clearSuggestionsCache() {
+    _cache.removeWhere((key, _) => key.startsWith('suggestions_') || key == 'suggestion_stats');
+    LocalCache.remove('suggestions_pending_all');
+  }
+
   /// Explicitly clear cached API responses (e.g. on pull-to-refresh)
-  void clearCache() {
-    _cache.clear();
+  void clearCache({String? prefix}) {
+    if (prefix != null) {
+      _cache.removeWhere((key, _) => key.startsWith(prefix));
+    } else {
+      _cache.clear();
+    }
   }
 
   // ----------------------------------------------------
@@ -132,7 +154,7 @@ class ApiClient {
 
   /// Submit new suggestion (parsed or raw text)
   Future<Map<String, dynamic>> createSuggestion(Map<String, dynamic> data) async {
-    clearCache();
+    clearSuggestionsCache();
     final res = await _dio.post('/api/suggestions', data: data);
     return res.data as Map<String, dynamic>;
   }
@@ -148,7 +170,7 @@ class ApiClient {
     bool? isTransfer,
     String? transferToAccountId,
   }) async {
-    clearCache();
+    clearSuggestionsCache();
     final res = await _dio.patch(
       '/api/suggestions/$id/approve',
       data: {
@@ -166,14 +188,14 @@ class ApiClient {
 
   /// Reject a suggestion
   Future<Map<String, dynamic>> rejectSuggestion(String id) async {
-    clearCache();
+    clearSuggestionsCache();
     final res = await _dio.patch('/api/suggestions/$id/reject');
     return res.data as Map<String, dynamic>;
   }
 
   /// Reset a suggestion back to pending (Undo)
   Future<Map<String, dynamic>> resetSuggestion(String id) async {
-    clearCache();
+    clearSuggestionsCache();
     final res = await _dio.patch('/api/suggestions/$id/reset');
     return res.data as Map<String, dynamic>;
   }
@@ -183,7 +205,7 @@ class ApiClient {
     required String action,
     required List<String> ids,
   }) async {
-    clearCache();
+    clearSuggestionsCache();
     final res = await _dio.post(
       '/api/suggestions/batch',
       data: {
@@ -303,7 +325,7 @@ class ApiClient {
 
   /// Map bank account last 4 digits to Wallet account (pass 'NONE' to mark as Don't Map)
   Future<Map<String, dynamic>> mapAccountLast4(String id, String? last4Digits) async {
-    clearCache();
+    clearCache(prefix: 'wallet_');
     final res = await _dio.patch(
       '/api/wallet/accounts/$id/map-last4',
       data: {'last4Digits': last4Digits},
@@ -350,9 +372,30 @@ class ApiClient {
     return res.data as List<dynamic>;
   }
 
+  /// Update an investment account's value by creating an income/expense transaction
+  Future<Map<String, dynamic>> updateInvestmentBalance({
+    required String accountId,
+    required double newValue,
+    double? currentValue,
+    String? note,
+    DateTime? recordDate,
+  }) async {
+    clearCache(prefix: 'wallet_');
+    final res = await _dio.post(
+      '/api/wallet/accounts/$accountId/update-balance',
+      data: {
+        'newValue': newValue,
+        if (currentValue != null) 'currentValue': currentValue,
+        if (note != null && note.isNotEmpty) 'note': note,
+        if (recordDate != null) 'recordDate': recordDate.toUtc().toIso8601String(),
+      },
+    );
+    return res.data as Map<String, dynamic>;
+  }
+
   /// Save custom account display order
   Future<Map<String, dynamic>> saveAccountOrder(List<String> accountOrder) async {
-    clearCache();
+    clearCache(prefix: 'wallet_');
     final res = await _dio.patch(
       '/api/wallet/accounts/reorder',
       data: {'accountOrder': accountOrder},

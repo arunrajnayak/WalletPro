@@ -25,8 +25,8 @@ class SmsReaderService {
     }
   }
 
-  // Hardcoded start date: 1st September 2026
-  static final DateTime hardcodedStartDate = DateTime(2026, 9, 1);
+  // Hardcoded start date: 1st September 2026 UTC
+  static final DateTime hardcodedStartDate = DateTime.utc(2026, 9, 1);
 
   /// Read raw SMS messages from Android inbox (default from 1st September 2026)
   Future<List<Map<String, dynamic>>> readInbox({DateTime? sinceDate, int limit = 500}) async {
@@ -66,7 +66,7 @@ class SmsReaderService {
       final msg = rawMessages[i];
       final body = msg['body']?.toString() ?? '';
       final dateMillis = msg['date'] as int? ?? 0;
-      final msgDate = DateTime.fromMillisecondsSinceEpoch(dateMillis);
+      final msgDate = DateTime.fromMillisecondsSinceEpoch(dateMillis, isUtc: true);
 
       if (onProgress != null) {
         onProgress(i + 1, rawMessages.length);
@@ -79,19 +79,24 @@ class SmsReaderService {
       final parsed = SmsParser.parse(body, messageDate: msgDate);
       if (parsed != null) {
         detected++;
-        // Transaction date matches SMS received date
-        parsed['transactionDate'] = msgDate.toIso8601String();
+        // Transaction date matches SMS received date in UTC
+        parsed['transactionDate'] = msgDate.toUtc().toIso8601String();
 
-        // Pass Android SMS ID as sourceId for deduplication & to avoid re-parsing reviewed SMS
+        // Standardize sourceId to match SmsReceiver.kt: sms_${sender}_${timestamp}
+        final sender = (msg['sender'] ?? '').toString().replaceAll('+', '').trim();
         final androidMsgId = msg['id']?.toString() ?? msg['_id']?.toString();
-        if (androidMsgId != null && androidMsgId.isNotEmpty) {
-          parsed['sourceId'] = androidMsgId;
+        final sourceId = (sender.isNotEmpty && dateMillis > 0)
+            ? 'sms_${sender}_$dateMillis'
+            : (androidMsgId != null && androidMsgId.isNotEmpty ? androidMsgId : null);
+
+        if (sourceId != null) {
+          parsed['sourceId'] = sourceId;
         }
 
         try {
           final res = await apiClient.createSuggestion({
             'text': body,
-            'date': msgDate.toIso8601String(),
+            'date': msgDate.toUtc().toIso8601String(),
             'source': 'sms',
             'parsedData': parsed,
           });

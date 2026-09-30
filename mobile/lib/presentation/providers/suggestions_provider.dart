@@ -14,8 +14,58 @@ class PendingSuggestionsNotifier extends StateNotifier<List<dynamic>> {
     return DateTime.fromMillisecondsSinceEpoch(0);
   }
 
+  static String _itemSignature(dynamic item) {
+    if (item is! Map) return item.toString();
+    final id = item['id']?.toString() ?? '';
+    final sourceId = item['sourceId']?.toString() ?? '';
+    final ref = item['referenceNumber']?.toString().trim() ?? '';
+    final rawText = (item['rawText'] ?? '').toString().replaceAll(RegExp(r'\s+'), ' ').trim().toLowerCase();
+    final amount = (item['amount'] as num?)?.toDouble().toStringAsFixed(2) ?? item['amount']?.toString() ?? '';
+    final date = _parseDate(item);
+    final dateKey = '${date.year}-${date.month}-${date.day}';
+
+    // If sourceId is available, it represents the unique SMS or notification id
+    if (sourceId.isNotEmpty) {
+      return 'src:$sourceId';
+    }
+    // If referenceNumber is available, amount + ref is uniquely identifying
+    if (ref.isNotEmpty) {
+      return 'ref:$amount:$ref';
+    }
+    // If rawText is available, amount + normalized text represents the identical transaction
+    if (rawText.isNotEmpty) {
+      return 'txt:$amount:$rawText';
+    }
+    // Fallback to amount + dateKey + accountLast4 + id
+    final last4 = (item['accountLast4'] ?? '').toString().trim();
+    return 'fallback:$amount:$dateKey:$last4:$id';
+  }
+
+  /// Deduplicates items by unique id and transaction signature
+  static List<dynamic> deduplicate(List<dynamic> items) {
+    final seenIds = <String>{};
+    final seenSignatures = <String>{};
+    final deduped = <dynamic>[];
+
+    for (final item in items) {
+      if (item is! Map) continue;
+      final id = item['id']?.toString();
+      if (id != null && id.isNotEmpty) {
+        if (seenIds.contains(id)) continue;
+        seenIds.add(id);
+      }
+
+      final sig = _itemSignature(item);
+      if (seenSignatures.contains(sig)) continue;
+      seenSignatures.add(sig);
+
+      deduped.add(item);
+    }
+    return deduped;
+  }
+
   static List<dynamic> sortByDateTime(List<dynamic> items) {
-    final list = List<dynamic>.from(items);
+    final list = deduplicate(items);
     list.sort((a, b) {
       final dateA = _parseDate(a);
       final dateB = _parseDate(b);

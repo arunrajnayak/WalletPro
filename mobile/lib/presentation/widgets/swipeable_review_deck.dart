@@ -93,7 +93,21 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
     }
     if (oldWidget.accounts != widget.accounts || oldWidget.suggestions != widget.suggestions) {
       _refreshCardStatesForAccounts();
+      _pruneCardStates();
     }
+  }
+
+  void _pruneCardStates() {
+    final activeIds = widget.suggestions
+        .map((s) => (s is Map ? s['id'] : null)?.toString())
+        .whereType<String>()
+        .toSet();
+    final historyIds = _history
+        .map((h) => (h.item is Map ? h.item['id'] : null)?.toString())
+        .whereType<String>()
+        .toSet();
+    final neededIds = activeIds.union(historyIds);
+    _cardStates.removeWhere((id, _) => !neededIds.contains(id));
   }
 
   void _refreshCardStatesForAccounts() {
@@ -269,6 +283,10 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
         action: isApprove ? 'approved' : 'rejected',
         state: cardState,
       ));
+      if (_history.length > 20) {
+        _history.removeAt(0);
+      }
+      _pruneCardStates();
 
       if (isApprove) {
         _sessionApprovedCount++;
