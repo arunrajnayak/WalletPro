@@ -3,10 +3,10 @@ import 'package:flutter/foundation.dart';
 class SmsParser {
   static final _amountRegex = RegExp(r'(?:Rs\.?|INR|₹)\s*([\d,]+\.?\d*)', caseSensitive: false);
   static final _accountRegex = RegExp(r'(?:A\/c|Acct|Card|a\/c|account)\s*(?:no\.?)?\s*[*xX]*([0-9]{3,5})', caseSensitive: false);
-  static final _typeRegex = RegExp(r'\b(debited|credited|spent|withdrawn|transferred|deposited|sent|received)\b', caseSensitive: false);
+  static final _typeRegex = RegExp(r'\b(debited|credited|spent|withdrawn|transferred|deposited|sent|received|used|charged)\b', caseSensitive: false);
   static final _upiRegex = RegExp(r'(?:UPI\s*(?:Ref|ref)(?:\s*(?:No|no)\.?)?|Ref\s*(?:No|no)\.?|UTR)[\s:\.\-]*([0-9]{6,16})', caseSensitive: false);
   static final _balanceRegex = RegExp(r'(?:Avl|Avail(?:able)?)?\s*Bal(?:ance)?\s*[:\s]*(?:INR|Rs\.?)?\s*([\d,]+\.?\d*)', caseSensitive: false);
-  static final _merchantRegex = RegExp(r'(?:to\s+vpa|to|at)\s+([A-Za-z0-9\s\.\&\*\-]+?)(?:\s+(?:on|via|UPI|Ref|avl|bal|using|date|\.|\,)|$)', caseSensitive: false);
+  static final _merchantRegex = RegExp(r'(?:to\s+vpa|to|at)\s+([A-Za-z0-9\s\.\&\*\-]+?)(?:\s+(?:for|on|via|UPI|Ref|avl|bal|using|date|\.|\,)|$)', caseSensitive: false);
 
   // Hardcoded start date: 1st September 2026 UTC
   static final DateTime hardcodedStartDate = DateTime.utc(2026, 9, 1);
