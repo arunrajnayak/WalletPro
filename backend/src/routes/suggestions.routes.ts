@@ -127,7 +127,12 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
     skip: parseInt(offset as string, 10) || 0,
   });
 
-  res.json(suggestions);
+  const mapped = suggestions.map((s) => ({
+    ...s,
+    amount: Number(s.amount),
+  }));
+
+  res.json(mapped);
 });
 
 // GET /api/suggestions/stats - Get counts by status
@@ -355,7 +360,10 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       suggestion.id
     );
 
-    return res.status(201).json(suggestion);
+    return res.status(201).json({
+      ...suggestion,
+      amount: Number(suggestion.amount),
+    });
   } finally {
     releaseLock();
   }

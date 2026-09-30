@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import '../../../core/constants/app_version.dart';
+import '../../../core/utils/stats_parser.dart';
 import '../remote/api_client.dart';
 
 class UpdateInfo {
@@ -34,7 +35,7 @@ class UpdateInfo {
 
     final assets = json['assets'] as List<dynamic>?;
     String apkUrl = (json['apkDownloadUrl'] ?? '').toString();
-    int size = (json['apkSize'] as num?)?.toInt() ?? 0;
+    int size = parseStatCount(json['apkSize']);
 
     if (apkUrl.isEmpty && assets != null && assets.isNotEmpty) {
       final apkAsset = assets.firstWhere(
@@ -43,7 +44,7 @@ class UpdateInfo {
         orElse: () => assets.first,
       );
       apkUrl = apkAsset['browser_download_url'] ?? '';
-      size = (apkAsset['size'] as num?)?.toInt() ?? 0;
+      size = parseStatCount(apkAsset['size']);
     }
 
     final publishedStr = (json['publishedAt'] ?? json['published_at'])?.toString();

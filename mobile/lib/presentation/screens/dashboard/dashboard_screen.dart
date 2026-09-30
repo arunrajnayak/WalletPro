@@ -142,7 +142,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   void _showAccountDetailSheet(Map<String, dynamic> account) {
     final accountId = (account['walletAccountId'] ?? account['id']).toString();
     final accountName = account['name'] ?? 'Account';
-    final balance = (account['balance'] as num?)?.toDouble() ?? 0.0;
+    final balance = parseDouble(account['balance']);
     final last4 = account['last4Digits']?.toString();
     final isNone = last4 == 'NONE';
     final isMapped = last4 != null && !isNone && last4.trim().isNotEmpty;
@@ -356,7 +356,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   void _showUpdateInvestmentValueSheet(Map<String, dynamic> account) {
     final accountId = (account['walletAccountId'] ?? account['id']).toString();
     final accountName = account['name'] ?? 'Investment Account';
-    final currentBalance = (account['balance'] as num?)?.toDouble() ?? 0.0;
+    final currentBalance = parseDouble(account['balance']);
     final color = _getAccountColor(account['color'], 0);
     final icon = _getAccountIcon(accountName, account['accountType']);
 
@@ -719,7 +719,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
                                       if (mounted) {
                                         final txType = res['transactionType'] ?? (isIncome ? 'income' : 'expense');
-                                        final diffAmt = (res['diff'] as num?)?.toDouble().abs() ?? diff.abs();
+                                        final diffAmt = parseDouble(res['diff'], fallback: diff).abs();
                                         ScaffoldMessenger.of(context).showSnackBar(
                                           SnackBar(
                                             content: Text(
@@ -897,9 +897,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final accounts = ref.watch(walletAccountsProvider);
     final updateState = ref.watch(appUpdateProvider);
 
-    final netWorth = (_quickViewData?['summary']?['netWorth'] as num?)?.toDouble() ?? 0.0;
-    final totalAssets = (_quickViewData?['summary']?['totalAssets'] as num?)?.toDouble() ?? 0.0;
-    final totalLiabilities = (_quickViewData?['summary']?['totalLiabilities'] as num?)?.toDouble() ?? 0.0;
+    final netWorth = parseDouble(_quickViewData?['summary']?['netWorth']);
+    final totalAssets = parseDouble(_quickViewData?['summary']?['totalAssets']);
+    final totalLiabilities = parseDouble(_quickViewData?['summary']?['totalLiabilities']);
 
     final isSyncing = _walletProfile?['syncState'] == 'syncing';
     final isConnected = _walletProfile?['connected'] == true;
@@ -1390,7 +1390,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             itemBuilder: (context, index) {
               final acc = filteredAccounts[index];
               final name = acc['name'] ?? 'Account';
-              final balance = (acc['balance'] as num?)?.toDouble() ?? 0.0;
+              final balance = parseDouble(acc['balance']);
               final color = _getAccountColor(acc['color'], index);
               final icon = _getAccountIcon(name, acc['accountType']);
               final isInvestment = _isInvestmentAccount(acc);

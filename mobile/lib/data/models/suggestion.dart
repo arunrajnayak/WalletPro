@@ -43,7 +43,9 @@ class Suggestion {
         id: json['id'] as String,
         source: SuggestionSource.values.byName(json['source'] as String? ?? 'sms'),
         status: SuggestionStatus.values.byName(json['status'] as String? ?? 'pending'),
-        amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
+        amount: (json['amount'] is num)
+            ? (json['amount'] as num).toDouble()
+            : double.tryParse(json['amount']?.toString() ?? '0') ?? 0.0,
         currencyCode: json['currencyCode'] as String? ?? 'INR',
         transactionType: TransactionType.values.byName(json['transactionType'] as String? ?? 'expense'),
         counterParty: json['counterParty'] as String?,
@@ -53,7 +55,9 @@ class Suggestion {
         walletAccountId: json['walletAccountId'] as String?,
         walletCategoryId: json['walletCategoryId'] as String?,
         walletCategoryName: json['walletCategoryName'] as String?,
-        aiConfidence: (json['aiConfidence'] as num?)?.toDouble(),
+        aiConfidence: (json['aiConfidence'] is num)
+            ? (json['aiConfidence'] as num).toDouble()
+            : double.tryParse(json['aiConfidence']?.toString() ?? ''),
         transactionDate: DateTime.parse(json['transactionDate'] as String),
         createdAt: DateTime.parse(json['createdAt'] as String),
       );

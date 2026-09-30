@@ -23,7 +23,9 @@ class WalletAccount {
         currencyCode: json['currencyCode'] as String? ?? 'INR',
         accountType: json['accountType'] as String? ?? 'General',
         last4Digits: json['last4Digits'] as String?,
-        balance: (json['balance'] as num?)?.toDouble() ?? 0.0,
+        balance: (json['balance'] is num)
+            ? (json['balance'] as num).toDouble()
+            : double.tryParse(json['balance']?.toString() ?? '0') ?? 0.0,
         isActive: json['isActive'] as bool? ?? true,
       );
 

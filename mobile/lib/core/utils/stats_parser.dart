@@ -7,3 +7,12 @@ int parseStatCount(dynamic value, {int fallback = 0}) {
   if (value is String) return int.tryParse(value) ?? fallback;
   return fallback;
 }
+
+/// Safely parses a double from any dynamic value (num, String, or null).
+double parseDouble(dynamic value, {double fallback = 0.0}) {
+  if (value == null) return fallback;
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value) ?? fallback;
+  return fallback;
+}
+

@@ -20,7 +20,11 @@ class PendingSuggestionsNotifier extends StateNotifier<List<dynamic>> {
     final sourceId = item['sourceId']?.toString() ?? '';
     final ref = item['referenceNumber']?.toString().trim() ?? '';
     final rawText = (item['rawText'] ?? '').toString().replaceAll(RegExp(r'\s+'), ' ').trim().toLowerCase();
-    final amount = (item['amount'] as num?)?.toDouble().toStringAsFixed(2) ?? item['amount']?.toString() ?? '';
+    final rawAmount = item['amount'];
+    final double? parsedAmount = rawAmount is num
+        ? rawAmount.toDouble()
+        : double.tryParse(rawAmount?.toString() ?? '');
+    final amount = parsedAmount != null ? parsedAmount.toStringAsFixed(2) : (rawAmount?.toString() ?? '');
     final date = _parseDate(item);
     final dateKey = '${date.year}-${date.month}-${date.day}';
 

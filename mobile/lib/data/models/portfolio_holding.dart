@@ -1,3 +1,5 @@
+import '../../core/utils/stats_parser.dart';
+
 class PortfolioHolding {
   final String id;
   final String type;
@@ -28,12 +30,12 @@ class PortfolioHolding {
         type: json['type'] as String,
         name: json['name'] as String,
         code: json['code'] as String,
-        units: (json['units'] as num?)?.toDouble() ?? 0.0,
-        avgCost: (json['avgCost'] as num?)?.toDouble() ?? 0.0,
-        currentNav: (json['currentNav'] as num?)?.toDouble() ?? 0.0,
-        currentValue: (json['currentValue'] as num?)?.toDouble() ?? 0.0,
-        previousNav: (json['previousNav'] as num?)?.toDouble() ?? 0.0,
-        changePercent: (json['changePercent'] as num?)?.toDouble() ?? 0.0,
+        units: parseDouble(json['units']),
+        avgCost: parseDouble(json['avgCost']),
+        currentNav: parseDouble(json['currentNav']),
+        currentValue: parseDouble(json['currentValue']),
+        previousNav: parseDouble(json['previousNav']),
+        changePercent: parseDouble(json['changePercent']),
       );
 
   Map<String, dynamic> toJson() => {
