@@ -354,15 +354,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   void _showUpdateInvestmentValueSheet(Map<String, dynamic> account) {
-    final accountId = (account['walletAccountId'] ?? account['id']).toString();
     final accountName = account['name'] ?? 'Investment Account';
-    final currentBalance = parseDouble(account['balance']);
     final color = _getAccountColor(account['color'], 0);
     final icon = _getAccountIcon(accountName, account['accountType']);
-
-    final valueController = TextEditingController();
-    final noteController = TextEditingController(text: 'Manual valuation update');
-    bool isSubmitting = false;
 
     showModalBottomSheet(
       context: context,
@@ -371,404 +365,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            final text = valueController.text;
-            final cleanText = text.replaceAll(',', '').replaceAll(' ', '').trim();
-            final newValue = double.tryParse(cleanText);
-
-            double diff = 0.0;
-            bool isIncome = false;
-            bool isExpense = false;
-            bool isZero = false;
-            bool isValid = false;
-
-            if (newValue != null && newValue >= 0) {
-              diff = double.parse((newValue - currentBalance).toStringAsFixed(2));
-              isIncome = diff > 0.001;
-              isExpense = diff < -0.001;
-              isZero = diff.abs() <= 0.001;
-              isValid = !isZero;
-            }
-
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(ctx).viewInsets.bottom,
-              ),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Drag Handle
-                    Center(
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 16),
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade600,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-
-                    // Header
-                    Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 18,
-                          backgroundColor: color.withValues(alpha: 0.2),
-                          child: Icon(icon, size: 18, color: color),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Update $accountName Value',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 2),
-                              const Text(
-                                'Record portfolio gain or loss adjustment',
-                                style: TextStyle(fontSize: 12, color: Colors.grey),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close_rounded, color: Colors.white60, size: 20),
-                          onPressed: () => Navigator.pop(ctx),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-
-                    // Current Value Card
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B).withValues(alpha: 0.6),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFF334155)),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'CURRENT VALUE',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.8,
-                                  color: Color(0xFF94A3B8),
-                                ),
-                              ),
-                              SizedBox(height: 2),
-                              Text(
-                                'Current ledger balance in Wallet',
-                                style: TextStyle(fontSize: 11, color: Colors.white54),
-                              ),
-                            ],
-                          ),
-                          Text(
-                            CurrencyFormatter.formatINR(currentBalance),
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // New Value Input Field
-                    const Text(
-                      'NEW VALUE',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.8,
-                        color: Color(0xFF94A3B8),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: valueController,
-                      autofocus: true,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                      onChanged: (_) => setModalState(() {}),
-                      decoration: InputDecoration(
-                        prefixIcon: const Padding(
-                          padding: EdgeInsets.only(left: 14, right: 6),
-                          child: Text(
-                            '₹',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF818CF8),
-                            ),
-                          ),
-                        ),
-                        prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
-                        hintText: 'Enter new total balance',
-                        hintStyle: const TextStyle(fontSize: 15, color: Colors.white38, fontWeight: FontWeight.normal),
-                        filled: true,
-                        fillColor: const Color(0xFF090D16),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: Color(0xFF334155), width: 1.2),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.6),
-                        ),
-                        suffixIcon: text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear_rounded, size: 18, color: Colors.white54),
-                                onPressed: () {
-                                  valueController.clear();
-                                  setModalState(() {});
-                                },
-                              )
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Live Difference / Preview Card
-                    if (newValue != null && isValid) ...[
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isIncome
-                              ? const Color(0xFF064E3B).withValues(alpha: 0.35)
-                              : const Color(0xFF7F1D1D).withValues(alpha: 0.35),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: isIncome ? const Color(0xFF059669) : const Color(0xFFDC2626),
-                            width: 1.2,
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      isIncome ? Icons.trending_up_rounded : Icons.trending_down_rounded,
-                                      size: 18,
-                                      color: isIncome ? const Color(0xFF4ADE80) : const Color(0xFFF87171),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      '${isIncome ? '+' : '-'}${CurrencyFormatter.formatINR(diff.abs())}',
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                        color: isIncome ? const Color(0xFF4ADE80) : const Color(0xFFF87171),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: isIncome ? const Color(0xFF065F46) : const Color(0xFF991B1B),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    isIncome ? 'INCOME' : 'EXPENSE',
-                                    style: const TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 0.5,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              isIncome
-                                  ? 'Creates an Income transaction under Investments > Investment value update.'
-                                  : 'Creates an Expense transaction under Investments > Investment value update.',
-                              style: const TextStyle(fontSize: 11.5, color: Colors.white70),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                    ] else if (isZero) ...[
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1E293B).withValues(alpha: 0.4),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.white12),
-                        ),
-                        child: const Row(
-                          children: [
-                            Icon(Icons.info_outline_rounded, size: 16, color: Colors.amberAccent),
-                            SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'New value matches current balance (₹0.00 difference). No transaction needed.',
-                                style: TextStyle(fontSize: 12, color: Colors.white70),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-
-                    // Note Field
-                    const Text(
-                      'NOTE (OPTIONAL)',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.8,
-                        color: Color(0xFF94A3B8),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: noteController,
-                      style: const TextStyle(fontSize: 14, color: Colors.white),
-                      decoration: InputDecoration(
-                        hintText: 'e.g. Monthly valuation update',
-                        hintStyle: const TextStyle(fontSize: 13, color: Colors.white38),
-                        filled: true,
-                        fillColor: const Color(0xFF090D16),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFF334155), width: 1.0),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.4),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Actions
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              side: const BorderSide(color: Color(0xFF334155)),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: const Text('Cancel', style: TextStyle(color: Colors.white70, fontSize: 14)),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 2,
-                          child: FilledButton(
-                            onPressed: (!isValid || isSubmitting)
-                                ? null
-                                : () async {
-                                    setModalState(() => isSubmitting = true);
-                                    try {
-                                      final res = await _api.updateInvestmentBalance(
-                                        accountId: accountId,
-                                        newValue: newValue!,
-                                        currentValue: currentBalance,
-                                        note: noteController.text.trim(),
-                                      );
-
-                                      if (ctx.mounted) {
-                                        Navigator.pop(ctx);
-                                      }
-
-                                      if (mounted) {
-                                        final txType = res['transactionType'] ?? (isIncome ? 'income' : 'expense');
-                                        final diffAmt = parseDouble(res['diff'], fallback: diff).abs();
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              'Updated $accountName! Recorded ${isIncome ? '+' : '-'}${CurrencyFormatter.formatINR(diffAmt)} $txType.',
-                                            ),
-                                            backgroundColor: isIncome ? const Color(0xFF059669) : const Color(0xFF4338CA),
-                                            duration: const Duration(seconds: 4),
-                                          ),
-                                        );
-                                        _loadDashboard(forceRefresh: true);
-                                      }
-                                    } catch (e) {
-                                      setModalState(() => isSubmitting = false);
-                                      if (mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: Text('Failed to update value: $e'),
-                                            backgroundColor: Colors.red.shade700,
-                                          ),
-                                        );
-                                      }
-                                    }
-                                  },
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFF4F46E5),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: isSubmitting
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                  )
-                                : const Text(
-                                    'Confirm & Update',
-                                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                                  ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
+      builder: (ctx) => _UpdateInvestmentValueSheet(
+        account: account,
+        accountName: accountName,
+        color: color,
+        icon: icon,
+        quickViewAccounts: (_quickViewData?['accounts'] as List<dynamic>?) ?? [],
+        onUpdated: () => _loadDashboard(forceRefresh: true),
+      ),
     );
   }
 
@@ -1487,5 +1091,550 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       ],
     );
   }
+}
 
+class _UpdateInvestmentValueSheet extends StatefulWidget {
+  final Map<String, dynamic> account;
+  final String accountName;
+  final Color color;
+  final IconData icon;
+  final List<dynamic> quickViewAccounts;
+  final VoidCallback onUpdated;
+
+  const _UpdateInvestmentValueSheet({
+    required this.account,
+    required this.accountName,
+    required this.color,
+    required this.icon,
+    required this.quickViewAccounts,
+    required this.onUpdated,
+  });
+
+  @override
+  State<_UpdateInvestmentValueSheet> createState() => _UpdateInvestmentValueSheetState();
+}
+
+class _UpdateInvestmentValueSheetState extends State<_UpdateInvestmentValueSheet> {
+  final ApiClient _api = ApiClient();
+  late final TextEditingController _valueController;
+  late final TextEditingController _noteController;
+
+  double? _currentBalance;
+  bool _isLoadingBalance = false;
+  String? _balanceError;
+  bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _valueController = TextEditingController();
+    _noteController = TextEditingController(text: 'Manual valuation update');
+    _resolveInitialBalance();
+  }
+
+  @override
+  void dispose() {
+    _valueController.dispose();
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  void _resolveInitialBalance() {
+    final rawBal = widget.account['balance'];
+    double? bal = rawBal != null ? parseDouble(rawBal) : null;
+
+    final accountId = (widget.account['walletAccountId'] ?? widget.account['id']).toString();
+    final accountName = widget.accountName.toLowerCase().trim();
+
+    // If balance is missing or zero, check if quickViewAccounts has a non-zero balance
+    if (bal == null || bal == 0.0) {
+      for (final qv in widget.quickViewAccounts) {
+        final qvId = (qv['id'] ?? qv['walletAccountId']).toString();
+        final qvName = (qv['name'] ?? '').toString().toLowerCase().trim();
+        if (qvId == accountId || (accountName.isNotEmpty && qvName == accountName)) {
+          final qvBal = parseDouble(qv['balance']);
+          if (qvBal != 0.0) {
+            bal = qvBal;
+            break;
+          }
+        }
+      }
+    }
+
+    if (bal != null && bal != 0.0) {
+      _currentBalance = bal;
+    } else {
+      // Fetch live balance asynchronously to guarantee safety
+      _fetchLiveBalance();
+    }
+  }
+
+  Future<void> _fetchLiveBalance() async {
+    setState(() {
+      _isLoadingBalance = true;
+      _balanceError = null;
+    });
+
+    try {
+      final qv = await _api.getQuickView(forceRefresh: true);
+      final accounts = (qv['accounts'] as List<dynamic>?) ?? [];
+      final accountId = (widget.account['walletAccountId'] ?? widget.account['id']).toString();
+      final accountName = widget.accountName.toLowerCase().trim();
+
+      double? foundBal;
+      for (final a in accounts) {
+        final aId = (a['id'] ?? a['walletAccountId']).toString();
+        final aName = (a['name'] ?? '').toString().toLowerCase().trim();
+        if (aId == accountId || (accountName.isNotEmpty && aName == accountName)) {
+          foundBal = parseDouble(a['balance']);
+          break;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _isLoadingBalance = false;
+          _currentBalance = foundBal ?? 0.0;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingBalance = false;
+          _balanceError = 'Could not fetch live balance from Wallet';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = _valueController.text;
+    final cleanText = text.replaceAll(',', '').replaceAll(' ', '').trim();
+    final newValue = double.tryParse(cleanText);
+
+    double diff = 0.0;
+    bool isIncome = false;
+    bool isExpense = false;
+    bool isZero = false;
+    bool isValid = false;
+
+    if (_currentBalance != null && newValue != null && newValue >= 0) {
+      diff = double.parse((newValue - _currentBalance!).toStringAsFixed(2));
+      isIncome = diff > 0.001;
+      isExpense = diff < -0.001;
+      isZero = diff.abs() <= 0.001;
+      isValid = !isZero && !_isLoadingBalance;
+    }
+
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Drag Handle
+            Center(
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade600,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+
+            // Header
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: widget.color.withValues(alpha: 0.2),
+                  child: Icon(widget.icon, size: 18, color: widget.color),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Update ${widget.accountName} Value',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      const Text(
+                        'Record portfolio gain or loss adjustment',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Colors.white60, size: 20),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+
+            // Current Value Card
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E293B).withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF334155)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'CURRENT VALUE',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                          color: Color(0xFF94A3B8),
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Current ledger balance in Wallet',
+                        style: TextStyle(fontSize: 11, color: Colors.white54),
+                      ),
+                    ],
+                  ),
+                  if (_isLoadingBalance)
+                    const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF818CF8)),
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'Fetching live balance...',
+                          style: TextStyle(fontSize: 12, color: Color(0xFF818CF8)),
+                        ),
+                      ],
+                    )
+                  else if (_balanceError != null)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _balanceError!,
+                          style: const TextStyle(fontSize: 12, color: Colors.redAccent),
+                        ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          icon: const Icon(Icons.refresh_rounded, size: 16, color: Colors.white70),
+                          onPressed: _fetchLiveBalance,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                    )
+                  else
+                    Text(
+                      CurrencyFormatter.formatINR(_currentBalance ?? 0.0),
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // New Value Input Field
+            const Text(
+              'NEW VALUE',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
+                color: Color(0xFF94A3B8),
+              ),
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _valueController,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                prefixIcon: const Padding(
+                  padding: EdgeInsets.only(left: 14, right: 6),
+                  child: Text(
+                    '₹',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF818CF8),
+                    ),
+                  ),
+                ),
+                prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+                hintText: 'Enter new total balance',
+                hintStyle: const TextStyle(fontSize: 15, color: Colors.white38, fontWeight: FontWeight.normal),
+                filled: true,
+                fillColor: const Color(0xFF090D16),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Color(0xFF334155), width: 1.2),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.6),
+                ),
+                suffixIcon: text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear_rounded, size: 18, color: Colors.white54),
+                        onPressed: () {
+                          _valueController.clear();
+                          setState(() {});
+                        },
+                      )
+                    : null,
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Live Difference / Preview Card
+            if (newValue != null && isValid) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isIncome
+                      ? const Color(0xFF064E3B).withValues(alpha: 0.35)
+                      : const Color(0xFF7F1D1D).withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isIncome ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                    width: 1.2,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              isIncome ? Icons.trending_up_rounded : Icons.trending_down_rounded,
+                              size: 18,
+                              color: isIncome ? const Color(0xFF4ADE80) : const Color(0xFFF87171),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${isIncome ? '+' : '-'}${CurrencyFormatter.formatINR(diff.abs())}',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: isIncome ? const Color(0xFF4ADE80) : const Color(0xFFF87171),
+                              ),
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: isIncome ? const Color(0xFF065F46) : const Color(0xFF991B1B),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            isIncome ? 'INCOME' : 'EXPENSE',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.5,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      isIncome
+                          ? 'Creates an Income transaction of +${CurrencyFormatter.formatINR(diff.abs())} under Investments > Investment value update so the ledger balance becomes ${CurrencyFormatter.formatINR(newValue)}.'
+                          : 'Creates an Expense transaction of -${CurrencyFormatter.formatINR(diff.abs())} under Investments > Investment value update so the ledger balance becomes ${CurrencyFormatter.formatINR(newValue)}.',
+                      style: const TextStyle(fontSize: 11.5, color: Colors.white70, height: 1.3),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+            ] else if (isZero) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B).withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.info_outline_rounded, size: 16, color: Colors.amberAccent),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'New value matches current balance (₹0.00 difference). No transaction needed.',
+                        style: TextStyle(fontSize: 12, color: Colors.white70),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
+
+            // Note Field
+            const Text(
+              'NOTE (OPTIONAL)',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
+                color: Color(0xFF94A3B8),
+              ),
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _noteController,
+              style: const TextStyle(fontSize: 14, color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'e.g. Monthly valuation update',
+                hintStyle: const TextStyle(fontSize: 13, color: Colors.white38),
+                filled: true,
+                fillColor: const Color(0xFF090D16),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFF334155), width: 1.0),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFF6366F1), width: 1.4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Actions
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _isSubmitting ? null : () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      side: const BorderSide(color: Color(0xFF334155)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text('Cancel', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: FilledButton(
+                    onPressed: (!isValid || _isSubmitting || _isLoadingBalance)
+                        ? null
+                        : () async {
+                            setState(() => _isSubmitting = true);
+                            try {
+                              final accountId = (widget.account['walletAccountId'] ?? widget.account['id']).toString();
+                              final res = await _api.updateInvestmentBalance(
+                                accountId: accountId,
+                                newValue: newValue!,
+                                currentValue: _currentBalance,
+                                note: _noteController.text.trim(),
+                              );
+
+                              if (context.mounted) {
+                                Navigator.pop(context);
+                              }
+
+                              final txType = res['transactionType'] ?? (isIncome ? 'income' : 'expense');
+                              final diffAmt = parseDouble(res['diff'], fallback: diff).abs();
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Updated ${widget.accountName}! Recorded ${isIncome ? '+' : '-'}${CurrencyFormatter.formatINR(diffAmt)} $txType.',
+                                    ),
+                                    backgroundColor: isIncome ? const Color(0xFF059669) : const Color(0xFF4338CA),
+                                    duration: const Duration(seconds: 4),
+                                  ),
+                                );
+                              }
+                              widget.onUpdated();
+                            } catch (e) {
+                              if (mounted) {
+                                setState(() => _isSubmitting = false);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Failed to update value: $e'),
+                                    backgroundColor: Colors.red.shade700,
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF4F46E5),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: _isSubmitting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Text(
+                            'Confirm & Update',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                          ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

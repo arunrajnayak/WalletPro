@@ -513,6 +513,28 @@ router.post('/records', authenticate, async (req: Request, res: Response) => {
   }
 });
 
+function extractAccountBalance(accountObj: any): number | null {
+  if (!accountObj) return null;
+  const b = accountObj.balance;
+  if (typeof b === 'number' && !isNaN(b)) {
+    return b;
+  }
+  if (b && typeof b === 'object') {
+    const candidate = b.currentBalance ?? b.rawCurrentBalance ?? b.initial;
+    if (typeof candidate === 'number' && !isNaN(candidate)) {
+      return candidate;
+    }
+    if (typeof candidate === 'string') {
+      const parsed = parseFloat(candidate);
+      if (!isNaN(parsed)) return parsed;
+    }
+  }
+  if (typeof accountObj.currentBalance === 'number' && !isNaN(accountObj.currentBalance)) {
+    return accountObj.currentBalance;
+  }
+  return null;
+}
+
 // POST /api/wallet/accounts/:id/update-balance - Manually update investment account value by recording an income/expense record
 router.post('/accounts/:id/update-balance', authenticate, async (req: Request, res: Response) => {
   const userId = req.user.id;
@@ -545,23 +567,43 @@ router.post('/accounts/:id/update-balance', authenticate, async (req: Request, r
   try {
     const client = new WalletClient(user.walletApiToken);
 
-    // Determine current balance: if client passed currentValue, use it; otherwise fetch from Wallet API
-    let currentBal = typeof clientCurrentValue === 'number' ? clientCurrentValue : 0;
-    if (typeof clientCurrentValue !== 'number') {
-      const allAccs = await client.getAllAccounts();
-      const match = allAccs.find(a => a.id === walletAccountId);
-      if (match && typeof match.balance === 'number') {
-        currentBal = match.balance;
-      }
+    // Always query live accounts from Wallet API to get authoritative current balance
+    WalletClient.clearCache();
+    const allAccs = await client.getAllAccounts({ archived: false }).catch(err => {
+      console.warn('[UpdateBalance] Failed to fetch live accounts:', err.message);
+      return [];
+    });
+
+    const match = allAccs.find((a: any) =>
+      a.id === walletAccountId ||
+      (a.name && accountName && a.name.trim().toLowerCase() === accountName.trim().toLowerCase())
+    );
+
+    const liveBal = extractAccountBalance(match);
+
+    let currentBal: number;
+    if (liveBal !== null) {
+      currentBal = liveBal;
+    } else if (typeof clientCurrentValue === 'number' && !isNaN(clientCurrentValue) && clientCurrentValue > 0) {
+      // Fallback only if live balance could not be extracted from Wallet API and client passed positive value
+      currentBal = clientCurrentValue;
+    } else {
+      return res.status(400).json({
+        error: `Could not verify current balance for account '${accountName}'. Please refresh the dashboard and try again.`,
+      });
     }
 
     const diff = Number((newValue - currentBal).toFixed(2));
-    if (diff === 0) {
+    if (Math.abs(diff) < 0.01) {
       return res.status(400).json({ error: 'New value is identical to current balance' });
     }
 
     const isIncome = diff > 0;
     const signedAmount = diff; // positive for income (+diff), negative for expense (-abs(diff))
+
+    console.log(
+      `[UpdateBalance] Account: "${accountName}" (${walletAccountId}), LiveBal: ${liveBal}, ClientVal: ${clientCurrentValue}, UsedCurrent: ${currentBal}, NewValue: ${newValue}, Diff: ${diff}, Type: ${isIncome ? 'income' : 'expense'}`
+    );
 
     // Resolve category "Investment value update" under "Investments"
     const catCache = await prisma.walletCategoryCache.findFirst({
@@ -570,7 +612,16 @@ router.post('/accounts/:id/update-balance', authenticate, async (req: Request, r
         name: { equals: 'Investment value update', mode: 'insensitive' },
       },
     });
-    const categoryId = catCache?.walletCategoryId || '5c5c2328-005a-8000-8000-000000000000';
+    let categoryId = catCache?.walletCategoryId;
+    if (!categoryId) {
+      const parentCat = await prisma.walletCategoryCache.findFirst({
+        where: {
+          userId,
+          name: { equals: 'Investments', mode: 'insensitive' },
+        },
+      });
+      categoryId = parentCat?.walletCategoryId || '5c5c2328-005a-8000-8000-000000000000';
+    }
 
     const txDate = recordDate ? new Date(recordDate) : new Date();
 
