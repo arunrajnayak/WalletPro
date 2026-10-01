@@ -36,7 +36,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Future<void> _loadDashboard({bool forceRefresh = false}) async {
-    setState(() => _isLoading = true);
+    if (_quickViewData == null) {
+      setState(() => _isLoading = true);
+    }
     try {
       final futures = await Future.wait([
         _api.getSuggestionStats(),
@@ -193,16 +195,25 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
-                            const SizedBox(height: 3),
-                            Text(
-                              isMapped
-                                  ? 'Mapped: •••• $last4'
-                                  : (isNone ? 'Don\'t Map' : 'Not Mapped'),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: isMapped ? Colors.green.shade400 : Colors.grey.shade400,
+                            if (isMapped) ...[
+                              const SizedBox(height: 3),
+                              Text(
+                                'Mapped: •••• $last4',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.green.shade400,
+                                ),
                               ),
-                            ),
+                            ] else if (!isNone) ...[
+                              const SizedBox(height: 3),
+                              Text(
+                                'Not Mapped',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade400,
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -498,6 +509,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(dashboardRefreshTriggerProvider, (previous, next) {
+      if (next > 0) {
+        _loadDashboard(forceRefresh: true);
+      }
+    });
+
     final accounts = ref.watch(walletAccountsProvider);
     final updateState = ref.watch(appUpdateProvider);
 
@@ -997,7 +1014,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               final balance = parseDouble(acc['balance']);
               final color = _getAccountColor(acc['color'], index);
               final icon = _getAccountIcon(name, acc['accountType']);
-              final isInvestment = _isInvestmentAccount(acc);
 
               return InkWell(
                 onTap: () => _showAccountDetailSheet(acc),
@@ -1020,49 +1036,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          CircleAvatar(
-                            radius: 14,
-                            backgroundColor: color.withValues(alpha: 0.2),
-                            child: Icon(icon, size: 14, color: color),
-                          ),
-                          if (isInvestment)
-                            Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () => _showUpdateInvestmentValueSheet(acc),
-                                borderRadius: BorderRadius.circular(8),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF6366F1).withValues(alpha: 0.18),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: const Color(0xFF818CF8).withValues(alpha: 0.5),
-                                      width: 0.8,
-                                    ),
-                                  ),
-                                  child: const Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.edit_rounded, size: 11, color: Color(0xFFA5B4FC)),
-                                      SizedBox(width: 3),
-                                      Text(
-                                        'Update',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w700,
-                                          color: Color(0xFFA5B4FC),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
+                      CircleAvatar(
+                        radius: 14,
+                        backgroundColor: color.withValues(alpha: 0.2),
+                        child: Icon(icon, size: 14, color: color),
                       ),
                       Text(
                         name,

@@ -170,6 +170,23 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen>
       NotificationService.updatePendingCount(newCount);
     }
 
+    final targetAccId = (walletAccountId ?? removedItem?['walletAccountId'])?.toString();
+    final amt = parseDouble(removedItem?['amount']);
+    final isTxTransfer = isTransfer == true || transactionType == 'transfer';
+    final isExpense = (transactionType ?? removedItem?['transactionType'] ?? 'expense') == 'expense';
+
+    // Optimistically adjust account balance in walletAccountsProvider
+    if (targetAccId != null && amt > 0) {
+      if (isTxTransfer) {
+        ref.read(walletAccountsProvider.notifier).adjustAccountBalance(targetAccId, -amt);
+        if (transferToAccountId != null) {
+          ref.read(walletAccountsProvider.notifier).adjustAccountBalance(transferToAccountId, amt);
+        }
+      } else {
+        ref.read(walletAccountsProvider.notifier).adjustAccountBalance(targetAccId, isExpense ? -amt : amt);
+      }
+    }
+
     if (mounted) {
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
@@ -211,6 +228,18 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen>
         final revertedCount = ref.read(pendingSuggestionsProvider).length;
         ref.read(pendingCountProvider.notifier).state = revertedCount;
         NotificationService.updatePendingCount(revertedCount);
+      }
+
+      // Rollback balance adjustment
+      if (targetAccId != null && amt > 0) {
+        if (isTxTransfer) {
+          ref.read(walletAccountsProvider.notifier).adjustAccountBalance(targetAccId, amt);
+          if (transferToAccountId != null) {
+            ref.read(walletAccountsProvider.notifier).adjustAccountBalance(transferToAccountId, -amt);
+          }
+        } else {
+          ref.read(walletAccountsProvider.notifier).adjustAccountBalance(targetAccId, isExpense ? amt : -amt);
+        }
       }
 
       if (mounted) {

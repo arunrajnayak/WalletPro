@@ -159,6 +159,16 @@ class ApiClient {
     return res.data as Map<String, dynamic>;
   }
 
+  /// Invalidate quickview and accounts cache when transactions change in Wallet
+  void invalidateWalletCache() {
+    _cache.remove('wallet_quickview');
+    LocalCache.remove('wallet_quickview');
+    _cache.remove('wallet_accounts_active');
+    _cache.remove('wallet_accounts_all');
+    LocalCache.remove('wallet_accounts_active');
+    LocalCache.remove('wallet_accounts_all');
+  }
+
   /// Approve a suggestion and sync to BudgetBakers Wallet
   Future<Map<String, dynamic>> approveSuggestion(
     String id, {
@@ -171,6 +181,7 @@ class ApiClient {
     String? transferToAccountId,
   }) async {
     clearSuggestionsCache();
+    invalidateWalletCache();
     final res = await _dio.patch(
       '/api/suggestions/$id/approve',
       data: {
@@ -196,6 +207,7 @@ class ApiClient {
   /// Reset a suggestion back to pending (Undo)
   Future<Map<String, dynamic>> resetSuggestion(String id) async {
     clearSuggestionsCache();
+    invalidateWalletCache();
     final res = await _dio.patch('/api/suggestions/$id/reset');
     return res.data as Map<String, dynamic>;
   }
@@ -206,6 +218,9 @@ class ApiClient {
     required List<String> ids,
   }) async {
     clearSuggestionsCache();
+    if (action == 'approve') {
+      invalidateWalletCache();
+    }
     final res = await _dio.post(
       '/api/suggestions/batch',
       data: {

@@ -106,7 +106,8 @@ router.get('/accounts', authenticate, async (req: Request, res: Response) => {
   const userId = req.user.id;
   const includeArchived = req.query.includeArchived === 'true';
 
-  const accounts = await prisma.walletAccount.findMany({
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const localAccounts = await prisma.walletAccount.findMany({
     where: {
       userId,
       ...(!includeArchived ? { isActive: true } : {}),
@@ -114,7 +115,47 @@ router.get('/accounts', authenticate, async (req: Request, res: Response) => {
     orderBy: { name: 'asc' },
   });
 
-  res.json(accounts);
+  if (!user || !user.walletApiToken) {
+    return res.json(localAccounts.map(a => ({
+      ...a,
+      color: null,
+      balance: 0,
+    })));
+  }
+
+  try {
+    const client = new WalletClient(user.walletApiToken);
+    const remoteAccounts = await client.getAllAccounts({ archived: includeArchived ? undefined : false }).catch(err => {
+      console.warn('Failed to fetch remote accounts for /accounts:', err.message);
+      return [];
+    });
+
+    if (remoteAccounts.length > 0) {
+      const remoteMap = new Map(remoteAccounts.map((a: any) => [a.id, a]));
+      const enriched = localAccounts.map(local => {
+        const remote = remoteMap.get(local.walletAccountId);
+        const rawBal = remote?.balance?.currentBalance ?? remote?.balance?.rawCurrentBalance ?? remote?.balance?.initial;
+        const balance = typeof rawBal === 'number' ? rawBal : (rawBal !== undefined ? parseFloat(rawBal) || 0 : 0);
+
+        return {
+          ...local,
+          color: remote?.color || null,
+          balance: balance,
+          isBankSync: remote?.isBankSync || false,
+          isInvestmentAccount: remote?.isInvestmentAccount || false,
+        };
+      });
+      return res.json(enriched);
+    }
+  } catch (err: any) {
+    console.warn('Remote accounts enrichment failed in /accounts:', err.message);
+  }
+
+  res.json(localAccounts.map(a => ({
+    ...a,
+    color: null,
+    balance: 0,
+  })));
 });
 
 // GET /api/wallet/quickview - Return live accounts with balances, colors, total net worth, and budgets

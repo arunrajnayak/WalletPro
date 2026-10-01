@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../presentation/providers/pending_count_provider.dart';
+import '../presentation/providers/wallet_provider.dart';
 import '../presentation/widgets/liquid_glass_nav_bar.dart';
 
 class ScaffoldWithNestedNavigation extends ConsumerWidget {
@@ -12,7 +13,11 @@ class ScaffoldWithNestedNavigation extends ConsumerWidget {
     required this.navigationShell,
   });
 
-  void _onTap(BuildContext context, int index) {
+  void _onTap(BuildContext context, WidgetRef ref, int index) {
+    if (navigationShell.currentIndex != 0 && index == 0) {
+      // Returning to Home from Review or Settings: trigger background refresh of dashboard
+      ref.read(dashboardRefreshTriggerProvider.notifier).state++;
+    }
     navigationShell.goBranch(
       index,
       initialLocation: index == navigationShell.currentIndex,
@@ -28,7 +33,7 @@ class ScaffoldWithNestedNavigation extends ConsumerWidget {
       body: navigationShell,
       bottomNavigationBar: LiquidGlassNavBar(
         selectedIndex: navigationShell.currentIndex,
-        onDestinationSelected: (index) => _onTap(context, index),
+        onDestinationSelected: (index) => _onTap(context, ref, index),
         items: [
           const LiquidGlassNavItem(
             icon: Icons.dashboard_outlined,
