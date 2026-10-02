@@ -54,7 +54,7 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
   late AnimationController _animController;
   late Animation<Offset> _slideAnimation;
 
-  Offset _dragOffset = Offset.zero;
+  final ValueNotifier<Offset> _dragOffsetNotifier = ValueNotifier<Offset>(Offset.zero);
   bool _isAnimating = false;
   bool _highlightMissingFields = false;
 
@@ -74,9 +74,7 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
       duration: const Duration(milliseconds: 280),
     );
     _animController.addListener(() {
-      setState(() {
-        _dragOffset = _slideAnimation.value;
-      });
+      _dragOffsetNotifier.value = _slideAnimation.value;
     });
     _animController.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
@@ -155,6 +153,7 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
   @override
   void dispose() {
     _animController.dispose();
+    _dragOffsetNotifier.dispose();
     super.dispose();
   }
 
@@ -208,7 +207,6 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
   }
 
   void _triggerBounceBack([String? errorMessage]) {
-    final screenWidth = MediaQuery.of(context).size.width;
     HapticFeedback.heavyImpact();
 
     setState(() {
@@ -217,7 +215,7 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
     });
 
     _slideAnimation = Tween<Offset>(
-      begin: _dragOffset,
+      begin: _dragOffsetNotifier.value,
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _animController,
@@ -264,11 +262,11 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
       }
     }
 
-    setState(() => _isAnimating = true);
+    _isAnimating = true;
     final targetX = isApprove ? screenWidth * 1.4 : -screenWidth * 1.4;
 
     _slideAnimation = Tween<Offset>(
-      begin: _dragOffset,
+      begin: _dragOffsetNotifier.value,
       end: Offset(targetX, 0),
     ).animate(CurvedAnimation(
       parent: _animController,
@@ -294,10 +292,12 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
         _sessionRejectedCount++;
       }
 
-      setState(() {
-        _dragOffset = Offset.zero;
-        _isAnimating = false;
-      });
+      _dragOffsetNotifier.value = Offset.zero;
+      if (mounted) {
+        setState(() {
+          _isAnimating = false;
+        });
+      }
 
       if (isApprove) {
         await widget.onApprove(
@@ -343,11 +343,6 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
     final topItem = suggestions.first as Map<String, dynamic>;
     _getOrCreateCardState(topItem);
     final screenWidth = MediaQuery.of(context).size.width;
-    final dragDx = _dragOffset.dx;
-
-    final approveOpacity = (dragDx / 90).clamp(0.0, 1.0);
-    final rejectOpacity = (-dragDx / 90).clamp(0.0, 1.0);
-    final dragFraction = (dragDx.abs() / 150).clamp(0.0, 1.0);
 
     return Column(
       children: [
@@ -458,67 +453,81 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
                 // 3rd Card in Stack (Deep Backdrop)
                 if (suggestions.length > 2)
                   Positioned.fill(
-                    child: Transform.scale(
-                      scale: 0.88,
-                      child: Transform.translate(
-                        offset: const Offset(0, 26),
-                        child: Opacity(
-                          opacity: 0.55,
-                          child: ReviewDeckCard(
-                            key: Key('deck_card_2_${suggestions[2]['id']}'),
-                            suggestion: suggestions[2] as Map<String, dynamic>,
-                            categories: widget.categories,
-                            accounts: widget.accounts,
+                    child: RepaintBoundary(
+                      child: Transform.scale(
+                        scale: 0.88,
+                        child: Transform.translate(
+                          offset: const Offset(0, 26),
+                          child: Opacity(
+                            opacity: 0.55,
+                            child: ReviewDeckCard(
+                              key: Key('deck_card_2_${suggestions[2]['id']}'),
+                              suggestion: suggestions[2] as Map<String, dynamic>,
+                              categories: widget.categories,
+                              accounts: widget.accounts,
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
 
-                // 2nd Card in Stack (Smooth Transitioning)
+                // 2nd Card in Stack (Smooth Transitioning via ValueListenableBuilder)
                 if (suggestions.length > 1)
                   Positioned.fill(
-                    child: Transform.scale(
-                      scale: ui.lerpDouble(0.94, 1.0, dragFraction)!,
-                      child: Transform.translate(
-                        offset: Offset(0, ui.lerpDouble(13.0, 0.0, dragFraction)!),
-                        child: Opacity(
-                          opacity: ui.lerpDouble(0.85, 1.0, dragFraction)!,
-                          child: ReviewDeckCard(
-                            key: Key('deck_card_1_${suggestions[1]['id']}'),
-                            suggestion: suggestions[1] as Map<String, dynamic>,
-                            categories: widget.categories,
-                            accounts: widget.accounts,
-                          ),
+                    child: ValueListenableBuilder<Offset>(
+                      valueListenable: _dragOffsetNotifier,
+                      child: RepaintBoundary(
+                        child: ReviewDeckCard(
+                          key: Key('deck_card_1_${suggestions[1]['id']}'),
+                          suggestion: suggestions[1] as Map<String, dynamic>,
+                          categories: widget.categories,
+                          accounts: widget.accounts,
                         ),
                       ),
+                      builder: (context, dragOffset, cardChild) {
+                        final dragFraction = (dragOffset.dx.abs() / 150).clamp(0.0, 1.0);
+                        return Transform.scale(
+                          scale: ui.lerpDouble(0.94, 1.0, dragFraction)!,
+                          child: Transform.translate(
+                            offset: Offset(0, ui.lerpDouble(13.0, 0.0, dragFraction)!),
+                            child: Opacity(
+                              opacity: ui.lerpDouble(0.85, 1.0, dragFraction)!,
+                              child: cardChild,
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
 
-                // Top Card (Fully Interactive)
+                // Top Card (Interactive gesture with GPU-accelerated translate/rotate)
                 Positioned.fill(
                   child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
                     onHorizontalDragStart: (_) {
                       if (_isAnimating) return;
                       _animController.stop();
                     },
                     onHorizontalDragUpdate: (details) {
                       if (_isAnimating) return;
-                      setState(() {
-                        _dragOffset = Offset(_dragOffset.dx + details.primaryDelta!, 0);
-                      });
+                      _dragOffsetNotifier.value = Offset(
+                        _dragOffsetNotifier.value.dx + details.primaryDelta!,
+                        0,
+                      );
                     },
                     onHorizontalDragEnd: (details) {
                       if (_isAnimating) return;
                       final velocityX = details.primaryVelocity ?? 0.0;
-                      if (_dragOffset.dx > 100 || velocityX > 600) {
+                      final currentDx = _dragOffsetNotifier.value.dx;
+                      if (currentDx > 100 || velocityX > 600) {
                         _completeSwipe(true);
-                      } else if (_dragOffset.dx < -100 || velocityX < -600) {
+                      } else if (currentDx < -100 || velocityX < -600) {
                         _completeSwipe(false);
                       } else {
                         // Snap back smoothly to center
                         _slideAnimation = Tween<Offset>(
-                          begin: _dragOffset,
+                          begin: _dragOffsetNotifier.value,
                           end: Offset.zero,
                         ).animate(CurvedAnimation(
                           parent: _animController,
@@ -527,17 +536,14 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
                         _animController.forward(from: 0.0);
                       }
                     },
-                    child: Transform.translate(
-                      offset: _dragOffset,
-                      child: Transform.rotate(
-                        angle: (_dragOffset.dx / screenWidth) * 0.35,
+                    child: ValueListenableBuilder<Offset>(
+                      valueListenable: _dragOffsetNotifier,
+                      child: RepaintBoundary(
                         child: ReviewDeckCard(
                           key: Key('deck_card_top_${topItem['id']}'),
                           suggestion: topItem,
                           categories: widget.categories,
                           accounts: widget.accounts,
-                          approveOpacity: approveOpacity,
-                          rejectOpacity: rejectOpacity,
                           highlightMissingFields: _highlightMissingFields,
                           isTopCard: true,
                           onApprove: _isAnimating ? null : () => _completeSwipe(true),
@@ -545,6 +551,57 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
                           onStateChanged: (st) => _onCardStateChanged(topItem['id'].toString(), st),
                         ),
                       ),
+                      builder: (context, dragOffset, cardChild) {
+                        final dragDx = dragOffset.dx;
+                        final approveOpacity = (dragDx / 90).clamp(0.0, 1.0);
+                        final rejectOpacity = (-dragDx / 90).clamp(0.0, 1.0);
+
+                        return Transform.translate(
+                          offset: dragOffset,
+                          child: Transform.rotate(
+                            angle: (dragDx / screenWidth) * 0.35,
+                            child: Stack(
+                              children: [
+                                cardChild!,
+                                if (approveOpacity > 0.01)
+                                  Positioned(
+                                    top: 24,
+                                    left: 20,
+                                    child: Opacity(
+                                      opacity: approveOpacity,
+                                      child: Transform.rotate(
+                                        angle: -0.26,
+                                        child: _buildStamp(
+                                          text: 'APPROVE',
+                                          color: const Color(0xFF16A34A),
+                                          bgColor: Colors.green.shade50.withOpacity(0.3),
+                                          shadowColor: Colors.green.withOpacity(0.2),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                if (rejectOpacity > 0.01)
+                                  Positioned(
+                                    top: 24,
+                                    right: 20,
+                                    child: Opacity(
+                                      opacity: rejectOpacity,
+                                      child: Transform.rotate(
+                                        angle: 0.26,
+                                        child: _buildStamp(
+                                          text: 'REJECT',
+                                          color: const Color(0xFFDC2626),
+                                          bgColor: Colors.red.shade50.withOpacity(0.3),
+                                          shadowColor: Colors.red.withOpacity(0.2),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -553,6 +610,38 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildStamp({
+    required String text,
+    required Color color,
+    required Color bgColor,
+    required Color shadowColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color, width: 3.5),
+        boxShadow: [
+          BoxShadow(
+            color: shadowColor,
+            blurRadius: 8,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 24,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 2,
+        ),
+      ),
     );
   }
 

@@ -4,6 +4,7 @@ import { env } from '../config/env';
 
 export class CategoryAI {
   private genAI: GoogleGenerativeAI | null = null;
+  private static userCategoriesCache = new Map<string, { categories: Array<{ walletCategoryId: string; name: string; groupName: string }>; expiresAt: number }>();
 
   constructor() {
     if (env.GEMINI_API_KEY && env.GEMINI_API_KEY.trim().length > 0) {
@@ -13,6 +14,30 @@ export class CategoryAI {
         console.warn('Could not initialize GoogleGenerativeAI:', err);
       }
     }
+  }
+
+  public static invalidateCategoryCache(userId?: string) {
+    if (userId) {
+      CategoryAI.userCategoriesCache.delete(userId);
+    } else {
+      CategoryAI.userCategoriesCache.clear();
+    }
+  }
+
+  private async getUserCategories(userId: string) {
+    const cached = CategoryAI.userCategoriesCache.get(userId);
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.categories;
+    }
+    const categories = await prisma.walletCategoryCache.findMany({
+      where: { userId },
+      select: { walletCategoryId: true, name: true, groupName: true },
+    });
+    CategoryAI.userCategoriesCache.set(userId, {
+      categories,
+      expiresAt: Date.now() + 10 * 60 * 1000, // 10 min TTL
+    });
+    return categories;
   }
 
   /**
@@ -58,11 +83,7 @@ export class CategoryAI {
     // 2. Fall back to Gemini AI if available
     if (this.genAI && counterParty) {
       try {
-        // Fetch cached categories to provide exact IDs to Gemini
-        const categories = await prisma.walletCategoryCache.findMany({
-          where: { userId },
-          select: { walletCategoryId: true, name: true, groupName: true }
-        });
+        const categories = await this.getUserCategories(userId);
 
         if (categories.length > 0) {
           const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });

@@ -42,6 +42,7 @@ model WalletAccount {
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, walletAccountId])
+  @@index([userId, isActive])
   @@map("wallet_accounts")
 }
 
@@ -77,6 +78,8 @@ model Suggestion {
   @@index([userId, transactionDate])
   @@index([userId, source, status])
   @@index([userId, sourceId])
+  @@index([userId, status, transactionDate])
+  @@index([userId, rawText])
   @@map("suggestions")
 }
 

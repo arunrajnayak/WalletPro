@@ -38,13 +38,14 @@ class LiquidGlassNavBar extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
     final bottomInset = MediaQuery.of(context).padding.bottom;
 
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 18,
-        right: 18,
-        bottom: bottomInset > 0 ? bottomInset + 6 : 18,
-      ),
-      child: ClipRRect(
+    return RepaintBoundary(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 18,
+          right: 18,
+          bottom: bottomInset > 0 ? bottomInset + 6 : 18,
+        ),
+        child: ClipRRect(
         borderRadius: BorderRadius.circular(28),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
@@ -139,8 +140,9 @@ class LiquidGlassNavBar extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 class _LiquidNavItemTile extends StatelessWidget {

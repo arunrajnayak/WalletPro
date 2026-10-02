@@ -44,24 +44,27 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         _api.getSuggestionStats(),
         _api.getUserProfile(forceRefresh: forceRefresh),
         _api.getWalletCategories(forceRefresh: forceRefresh),
-        _api.getWalletAccounts(forceRefresh: forceRefresh),
         _api.getQuickView(forceRefresh: forceRefresh).catchError((_) => <String, dynamic>{}),
         _api.getWalletProfile(forceRefresh: forceRefresh).catchError((_) => <String, dynamic>{}),
       ]);
 
       final stats = futures[0] as Map<String, dynamic>;
       final categories = futures[2] as List<dynamic>;
-      final localAccounts = futures[3] as List<dynamic>;
-      final quickView = futures[4] as Map<String, dynamic>;
-      final walletProfile = futures[5] as Map<String, dynamic>;
+      final quickView = futures[3] as Map<String, dynamic>;
+      final walletProfile = futures[4] as Map<String, dynamic>;
 
       final int pending = parseStatCount(stats['pending']);
       ref.read(pendingCountProvider.notifier).state = pending;
       NotificationService.updatePendingCount(pending);
 
       // Prefer quickView accounts because they contain live balances and colors from BudgetBakers
-      final qvAccounts = (quickView['accounts'] as List<dynamic>?) ?? [];
-      final accounts = qvAccounts.isNotEmpty ? qvAccounts : localAccounts;
+      var accounts = (quickView['accounts'] as List<dynamic>?) ?? [];
+      if (accounts.isEmpty) {
+        // Fallback to local accounts only if quickView accounts are missing
+        try {
+          accounts = await _api.getWalletAccounts(forceRefresh: forceRefresh);
+        } catch (_) {}
+      }
 
       AccountSorter.sortAccounts(accounts);
       ref.read(walletAccountsProvider.notifier).setAccounts(accounts);
@@ -127,6 +130,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return Icons.account_balance_outlined;
   }
 
+  bool _isCreditAccount(Map<String, dynamic> acc) {
+    final type = (acc['accountType'] ?? '').toString().toLowerCase();
+    final name = (acc['name'] ?? '').toString().toLowerCase();
+    return type.contains('credit') ||
+        name.contains('credit') ||
+        name.contains('card') ||
+        name.contains('platinum') ||
+        name.contains('rewards');
+  }
+
   bool _isInvestmentAccount(Map<String, dynamic> acc) {
     final type = (acc['accountType'] ?? '').toString().toLowerCase();
     final name = (acc['name'] ?? '').toString().toLowerCase();
@@ -139,6 +152,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         name.contains('nps') ||
         name.contains('upstox') ||
         name.contains('epf');
+  }
+
+  bool _isBankOrCashAccount(Map<String, dynamic> acc) {
+    return !_isCreditAccount(acc) && !_isInvestmentAccount(acc);
   }
 
   void _showAccountDetailSheet(Map<String, dynamic> account) {
@@ -527,20 +544,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     // Filter accounts based on selected segment
     final filteredAccounts = accounts.where((acc) {
+      if (acc is! Map<String, dynamic>) return true;
       if (_selectedAccountFilter == 'All') return true;
-      final type = (acc['accountType'] ?? '').toString().toLowerCase();
-      final name = (acc['name'] ?? '').toString().toLowerCase();
-      if (_selectedAccountFilter == 'Credit') {
-        return type.contains('credit') || name.contains('credit') || name.contains('card');
-      }
-      if (_selectedAccountFilter == 'Investments') {
-        return type.contains('invest') || name.contains('fund') || name.contains('zerodha') || name.contains('stock') || name.contains('nps') || name.contains('epf');
-      }
-      if (_selectedAccountFilter == 'Banks') {
-        final isCredit = type.contains('credit') || name.contains('credit') || name.contains('card');
-        final isInv = type.contains('invest') || name.contains('fund') || name.contains('zerodha') || name.contains('stock');
-        return !isCredit && !isInv;
-      }
+      if (_selectedAccountFilter == 'Credit') return _isCreditAccount(acc);
+      if (_selectedAccountFilter == 'Investments') return _isInvestmentAccount(acc);
+      if (_selectedAccountFilter == 'Banks') return _isBankOrCashAccount(acc);
       return true;
     }).toList();
 
@@ -746,12 +754,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Widget _buildNetWorthHeroCard(double netWorth, double totalAssets, double totalLiabilities) {
-    final assetRatio = (totalAssets + totalLiabilities.abs()) > 0
-        ? (totalAssets / (totalAssets + totalLiabilities.abs())).clamp(0.05, 0.95)
+    final absAssets = totalAssets.abs();
+    final absLiab = totalLiabilities.abs();
+    final totalPool = absAssets + absLiab;
+    final assetRatio = totalPool > 0
+        ? (absAssets / totalPool).clamp(0.05, 0.95)
         : 1.0;
+    final assetPct = (assetRatio * 100).toInt();
+    final liabPct = 100 - assetPct;
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
@@ -763,7 +776,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.35),
-            blurRadius: 18,
+            blurRadius: 20,
             offset: const Offset(0, 8),
           ),
         ],
@@ -774,28 +787,47 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'TOTAL NET WORTH',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.2,
-                  color: Color(0xFF94A3B8),
-                ),
+              Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: netWorth >= 0 ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'TOTAL NET WORTH',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.2,
+                      color: Color(0xFF94A3B8),
+                    ),
+                  ),
+                ],
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3.5),
                 decoration: BoxDecoration(
                   color: netWorth >= 0
                       ? const Color(0xFF064E3B).withValues(alpha: 0.5)
                       : const Color(0xFF7F1D1D).withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: netWorth >= 0
+                        ? const Color(0xFF059669).withValues(alpha: 0.6)
+                        : const Color(0xFFDC2626).withValues(alpha: 0.6),
+                    width: 0.8,
+                  ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      netWorth >= 0 ? Icons.trending_up : Icons.trending_down,
+                      netWorth >= 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded,
                       size: 13,
                       color: netWorth >= 0 ? const Color(0xFF4ADE80) : const Color(0xFFF87171),
                     ),
@@ -803,7 +835,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     Text(
                       netWorth >= 0 ? 'Healthy' : 'Deficit',
                       style: TextStyle(
-                        fontSize: 10.5,
+                        fontSize: 11,
                         fontWeight: FontWeight.bold,
                         color: netWorth >= 0 ? const Color(0xFF4ADE80) : const Color(0xFFF87171),
                       ),
@@ -813,13 +845,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           FittedBox(
             fit: BoxFit.scaleDown,
             child: Text(
               CurrencyFormatter.formatINR(netWorth),
               style: TextStyle(
-                fontSize: 34,
+                fontSize: 36,
                 fontWeight: FontWeight.w900,
                 letterSpacing: -1.0,
                 color: netWorth >= 0 ? Colors.white : const Color(0xFFF87171),
@@ -827,6 +859,30 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ),
           ),
           const SizedBox(height: 16),
+
+          // Visual Ratio Split Header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '$assetPct% Assets',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF34D399),
+                ),
+              ),
+              Text(
+                '$liabPct% Liabilities',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFFF87171),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
 
           // Visual Ratio Split Bar
           ClipRRect(
@@ -836,12 +892,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               child: Row(
                 children: [
                   Expanded(
-                    flex: (assetRatio * 100).toInt(),
+                    flex: assetPct > 0 ? assetPct : 1,
                     child: Container(color: const Color(0xFF10B981)),
                   ),
                   const SizedBox(width: 2),
                   Expanded(
-                    flex: ((1 - assetRatio) * 100).toInt(),
+                    flex: liabPct > 0 ? liabPct : 1,
                     child: Container(color: const Color(0xFFEF4444)),
                   ),
                 ],
@@ -857,9 +913,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF090D16).withValues(alpha: 0.6),
+                    color: const Color(0xFF10B981).withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFF1E293B)),
+                    border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.25)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -868,13 +924,23 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         children: [
                           Icon(Icons.arrow_upward_rounded, size: 13, color: Colors.green.shade400),
                           const SizedBox(width: 4),
-                          const Text('Total Assets', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.w600)),
+                          const Text(
+                            'Total Assets',
+                            style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.w600),
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 3),
-                      Text(
-                        CurrencyFormatter.formatINR(totalAssets),
-                        style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold, color: Color(0xFF4ADE80)),
+                      const SizedBox(height: 4),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          CurrencyFormatter.formatINR(totalAssets),
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF4ADE80),
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -885,9 +951,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF090D16).withValues(alpha: 0.6),
+                    color: const Color(0xFFEF4444).withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFF1E293B)),
+                    border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.25)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -896,13 +962,23 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         children: [
                           Icon(Icons.arrow_downward_rounded, size: 13, color: Colors.red.shade400),
                           const SizedBox(width: 4),
-                          const Text('Total Liabilities', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.w600)),
+                          const Text(
+                            'Total Liabilities',
+                            style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.w600),
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 3),
-                      Text(
-                        CurrencyFormatter.formatINR(totalLiabilities),
-                        style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold, color: Color(0xFFF87171)),
+                      const SizedBox(height: 4),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          CurrencyFormatter.formatINR(totalLiabilities),
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFFF87171),
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -913,6 +989,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ],
       ),
     );
+  }
+
+  int _countForFilter(String filter, List<dynamic> list) {
+    if (filter == 'All') return list.length;
+    if (filter == 'Banks') return list.where((a) => a is Map<String, dynamic> && _isBankOrCashAccount(a)).length;
+    if (filter == 'Credit') return list.where((a) => a is Map<String, dynamic> && _isCreditAccount(a)).length;
+    if (filter == 'Investments') return list.where((a) => a is Map<String, dynamic> && _isInvestmentAccount(a)).length;
+    return 0;
   }
 
   Widget _buildAccountsSection(List<dynamic> allAccounts, List<dynamic> filteredAccounts) {
@@ -951,17 +1035,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ),
         const SizedBox(height: 8),
 
-        // Filter Pills
+        // Filter Pills with item counts
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           physics: const BouncingScrollPhysics(),
           child: Row(
             children: ['All', 'Banks', 'Credit', 'Investments'].map((filter) {
               final isSel = _selectedAccountFilter == filter;
+              final count = _countForFilter(filter, allAccounts);
               return Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: FilterChip(
-                  label: Text(filter),
+                  label: Text('$filter ($count)'),
                   selected: isSel,
                   onSelected: (val) {
                     setState(() => _selectedAccountFilter = filter);
@@ -970,7 +1055,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   selectedColor: const Color(0xFF312E81),
                   labelStyle: TextStyle(
                     fontSize: 12,
-                    fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
+                    fontWeight: isSel ? FontWeight.bold : FontWeight.w600,
                     color: isSel ? Colors.white : const Color(0xFF94A3B8),
                   ),
                   side: BorderSide(
@@ -1006,29 +1091,34 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               crossAxisCount: 2,
               crossAxisSpacing: 10,
               mainAxisSpacing: 10,
-              mainAxisExtent: 118,
+              mainAxisExtent: 126,
             ),
             itemBuilder: (context, index) {
               final acc = filteredAccounts[index];
-              final name = acc['name'] ?? 'Account';
+              final name = (acc['name'] ?? 'Account').toString();
               final balance = parseDouble(acc['balance']);
               final color = _getAccountColor(acc['color'], index);
               final icon = _getAccountIcon(name, acc['accountType']);
+              final last4 = (acc['last4Digits'] ?? '').toString().trim();
+              final hasLast4 = last4.isNotEmpty && last4.toUpperCase() != 'NONE';
 
               return InkWell(
                 onTap: () => _showAccountDetailSheet(acc),
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(18),
                 child: Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(13),
                   decoration: BoxDecoration(
                     color: const Color(0xFF0F172A),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFF1E293B)),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: const Color(0xFF1E293B),
+                      width: 1.2,
+                    ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.2),
-                        blurRadius: 6,
-                        offset: const Offset(0, 2),
+                        color: Colors.black.withValues(alpha: 0.25),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
                       ),
                     ],
                   ),
@@ -1036,27 +1126,62 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      CircleAvatar(
-                        radius: 14,
-                        backgroundColor: color.withValues(alpha: 0.2),
-                        child: Icon(icon, size: 14, color: color),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(
+                            width: 34,
+                            height: 34,
+                            decoration: BoxDecoration(
+                              color: color.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: color.withValues(alpha: 0.35), width: 1),
+                            ),
+                            child: Icon(icon, size: 17, color: color),
+                          ),
+                          if (hasLast4)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E293B),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: const Color(0xFF334155), width: 0.8),
+                              ),
+                              child: Text(
+                                '••$last4',
+                                style: const TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF94A3B8),
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
+                      const SizedBox(height: 4),
                       Text(
                         name,
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
                           color: Colors.white,
+                          letterSpacing: -0.2,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      Text(
-                        CurrencyFormatter.formatINR(balance),
-                        style: TextStyle(
-                          fontSize: 14.5,
-                          fontWeight: FontWeight.w800,
-                          color: balance < 0 ? const Color(0xFFF87171) : const Color(0xFF4ADE80),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          CurrencyFormatter.formatINR(balance),
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.3,
+                            color: balance < 0 ? const Color(0xFFF87171) : const Color(0xFF4ADE80),
+                          ),
                         ),
                       ),
                     ],

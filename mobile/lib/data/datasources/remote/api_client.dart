@@ -159,6 +159,13 @@ class ApiClient {
     return res.data as Map<String, dynamic>;
   }
 
+  /// Bulk submit multiple transactions at once (high-throughput inbox sync)
+  Future<Map<String, dynamic>> createSuggestionsBulk(List<Map<String, dynamic>> transactions) async {
+    clearSuggestionsCache();
+    final res = await _dio.post('/api/suggestions/bulk', data: {'transactions': transactions});
+    return res.data as Map<String, dynamic>;
+  }
+
   /// Invalidate quickview and accounts cache when transactions change in Wallet
   void invalidateWalletCache() {
     _cache.remove('wallet_quickview');

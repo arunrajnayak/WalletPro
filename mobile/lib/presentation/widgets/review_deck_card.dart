@@ -490,14 +490,15 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
     final isTransferFromMissing = isTransfer && _selectedAccountId == null;
     final isTransferToMissing = isTransfer && _selectedTransferToAccountId == null;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withOpacity(0.6),
-          width: 1.2,
-        ),
+    return RepaintBoundary(
+      child: Container(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant.withOpacity(0.6),
+            width: 1.2,
+          ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(isDark ? 0.35 : 0.08),
@@ -1066,7 +1067,8 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
           ],
         ),
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildThumbButton({

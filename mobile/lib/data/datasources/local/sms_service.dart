@@ -67,6 +67,7 @@ class SmsReaderService {
     final rawMessages = await readInbox(sinceDate: effectiveSince, limit: 200);
     int detected = 0;
     int created = 0;
+    final List<Map<String, dynamic>> detectedBatch = [];
 
     for (int i = 0; i < rawMessages.length; i++) {
       final msg = rawMessages[i];
@@ -85,10 +86,8 @@ class SmsReaderService {
       final parsed = SmsParser.parse(body, messageDate: msgDate);
       if (parsed != null) {
         detected++;
-        // Transaction date matches SMS received date in UTC
         parsed['transactionDate'] = msgDate.toUtc().toIso8601String();
 
-        // Standardize sourceId to match SmsReceiver.kt: sms_${sender}_${timestamp}
         final sender = (msg['sender'] ?? '').toString().replaceAll('+', '').trim();
         final androidMsgId = msg['id']?.toString() ?? msg['_id']?.toString();
         final sourceId = (sender.isNotEmpty && dateMillis > 0)
@@ -99,18 +98,36 @@ class SmsReaderService {
           parsed['sourceId'] = sourceId;
         }
 
+        detectedBatch.add({
+          'text': body,
+          'date': msgDate.toUtc().toIso8601String(),
+          'source': 'sms',
+          'parsedData': parsed,
+        });
+      }
+    }
+
+    // High-performance bulk ingestion in chunks of 25
+    if (detectedBatch.isNotEmpty) {
+      const chunkSize = 25;
+      for (int i = 0; i < detectedBatch.length; i += chunkSize) {
+        final chunk = detectedBatch.sublist(
+          i,
+          (i + chunkSize > detectedBatch.length) ? detectedBatch.length : i + chunkSize,
+        );
         try {
-          final res = await apiClient.createSuggestion({
-            'text': body,
-            'date': msgDate.toUtc().toIso8601String(),
-            'source': 'sms',
-            'parsedData': parsed,
-          });
-          if (res['ignored'] != true && res['id'] != null) {
-            created++;
-          }
+          final res = await apiClient.createSuggestionsBulk(chunk);
+          created += (res['created'] as int?) ?? (res['items'] as List?)?.length ?? 0;
         } catch (_) {
-          // Ignore duplicate (409) or failed single item so batch scan continues
+          // Fallback to individual items if bulk endpoint encounters unexpected error
+          for (final item in chunk) {
+            try {
+              final singleRes = await apiClient.createSuggestion(item);
+              if (singleRes['ignored'] != true && singleRes['id'] != null) {
+                created++;
+              }
+            } catch (_) {}
+          }
         }
       }
     }

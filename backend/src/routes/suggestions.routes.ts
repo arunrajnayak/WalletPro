@@ -14,12 +14,21 @@ const categoryAi = new CategoryAI();
 // Hardcoded start date: 1st September 2026
 const HARDCODED_START_DATE = new Date('2026-09-01T00:00:00.000Z');
 
+// Debounce map to prevent redundant duplicate cleanups on concurrent queries
+const lastCleanupByUser = new Map<string, number>();
+
 /**
  * Deduplicate pending suggestions for a user.
  * If duplicate pending suggestions exist (e.g. from historical dual ingestion or timezone bugs),
  * keeps the earliest created one and cleans up surplus duplicates.
  */
-async function cleanupPendingDuplicates(userId: string): Promise<void> {
+async function cleanupPendingDuplicates(userId: string, force = false): Promise<void> {
+  const lastRun = lastCleanupByUser.get(userId) || 0;
+  if (!force && Date.now() - lastRun < 5 * 60 * 1000) {
+    return;
+  }
+  lastCleanupByUser.set(userId, Date.now());
+
   try {
     const pending = await prisma.suggestion.findMany({
       where: {
@@ -367,6 +376,157 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   } finally {
     releaseLock();
   }
+});
+
+// POST /api/suggestions/bulk - Batch ingestion of multiple detected SMS transactions
+router.post('/bulk', authenticate, async (req: Request, res: Response) => {
+  const userId = req.user.id;
+  const { transactions } = req.body;
+
+  if (!Array.isArray(transactions) || transactions.length === 0) {
+    return res.status(400).json({ error: 'transactions array is required and must not be empty' });
+  }
+
+  // Pre-fetch active mapped accounts once for the entire batch
+  const activeMappedAccounts = await prisma.walletAccount.findMany({
+    where: { userId, isActive: true, last4Digits: { not: null } },
+  });
+
+  const createdItems: any[] = [];
+  let ignoredCount = 0;
+  let duplicateCount = 0;
+
+  for (const item of transactions) {
+    let parsed = item.parsedData;
+    if (!parsed && item.text) {
+      parsed = smsParser.parse(item.text, item.date ? new Date(item.date) : new Date());
+    }
+
+    if (!parsed || !parsed.amount) {
+      ignoredCount++;
+      continue;
+    }
+
+    const transactionDate = new Date(parsed.transactionDate || item.date || Date.now());
+    const amount = Number(parsed.amount);
+
+    if (transactionDate < HARDCODED_START_DATE) {
+      ignoredCount++;
+      continue;
+    }
+
+    const rawTextToSave = (parsed.rawText || item.text || '').trim();
+
+    // Check sourceId duplicate
+    if (parsed.sourceId) {
+      const existingBySourceId = await prisma.suggestion.findFirst({
+        where: { userId, sourceId: String(parsed.sourceId) },
+        select: { id: true },
+      });
+      if (existingBySourceId) {
+        duplicateCount++;
+        continue;
+      }
+    }
+
+    // Check rawText duplicate
+    if (rawTextToSave.length > 10) {
+      const existingByRawText = await prisma.suggestion.findFirst({
+        where: {
+          userId,
+          rawText: rawTextToSave,
+          status: { in: ['pending', 'approved', 'synced'] },
+        },
+        select: { id: true },
+      });
+      if (existingByRawText) {
+        duplicateCount++;
+        continue;
+      }
+    }
+
+    // Multi-layer dedup check
+    const isDup = await dedupEngine.isDuplicate(
+      userId,
+      transactionDate,
+      amount,
+      parsed.referenceNumber,
+      parsed.accountLast4,
+      rawTextToSave,
+      parsed.sourceId ? String(parsed.sourceId) : undefined
+    );
+
+    if (isDup) {
+      duplicateCount++;
+      continue;
+    }
+
+    // Account mapping match
+    let matchedAccountId: string | undefined;
+    if (parsed.accountLast4) {
+      const matchedAccount = activeMappedAccounts.find((acc) => {
+        if (!acc.last4Digits) return false;
+        const digitsList = acc.last4Digits.split(/[,;\s]+/).map((s: string) => s.trim());
+        return digitsList.includes(parsed.accountLast4) || acc.last4Digits === parsed.accountLast4;
+      });
+      if (matchedAccount) {
+        matchedAccountId = matchedAccount.walletAccountId;
+      }
+    }
+
+    // AI Category suggestion
+    const aiSuggestion = await categoryAi.suggestCategory(
+      userId,
+      parsed.counterParty || '',
+      amount,
+      parsed.transactionType || 'expense'
+    );
+
+    const suggestion = await prisma.suggestion.create({
+      data: {
+        userId,
+        source: 'sms',
+        amount,
+        currencyCode: parsed.currencyCode || 'INR',
+        transactionType: parsed.transactionType || 'expense',
+        counterParty: parsed.counterParty,
+        referenceNumber: parsed.referenceNumber,
+        accountLast4: parsed.accountLast4,
+        walletAccountId: matchedAccountId,
+        walletCategoryId: aiSuggestion.categoryId,
+        walletCategoryName: aiSuggestion.categoryName,
+        rawText: rawTextToSave,
+        sourceId: parsed.sourceId ? String(parsed.sourceId) : undefined,
+        transactionDate,
+        aiConfidence: aiSuggestion.confidence,
+        aiSuggestedCategory: aiSuggestion.categoryId,
+        parsedData: parsed,
+      },
+    });
+
+    await dedupEngine.recordTransaction(
+      userId,
+      transactionDate,
+      amount,
+      'sms',
+      parsed.referenceNumber,
+      parsed.accountLast4,
+      suggestion.id
+    );
+
+    createdItems.push({
+      ...suggestion,
+      amount: Number(suggestion.amount),
+    });
+  }
+
+  res.status(201).json({
+    totalReceived: transactions.length,
+    created: createdItems.length,
+    duplicates: duplicateCount,
+    ignored: ignoredCount,
+    items: createdItems,
+  });
 });
 
 // PATCH /api/suggestions/:id/approve - Approve and post transaction to BudgetBakers Wallet

@@ -31,10 +31,6 @@ final routerProvider = Provider<GoRouter>((ref) {
                 path: '/',
                 builder: (context, state) => const DashboardScreen(),
               ),
-              GoRoute(
-                path: '/quickview',
-                redirect: (context, state) => '/',
-              ),
             ],
           ),
 
