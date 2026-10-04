@@ -11,6 +11,7 @@ export interface ParsedTransaction {
   confidence: number;
   bank?: string;
   transactionMode?: 'upi' | 'neft' | 'imps' | 'card' | 'netbanking' | 'atm' | 'unknown';
+  isOtp?: boolean;
 }
 
 export class SmsParser {
@@ -28,6 +29,8 @@ export class SmsParser {
     if (combined.includes('BOB') || combined.includes('BARODA')) return 'Bank of Baroda';
     if (combined.includes('INDUS')) return 'IndusInd Bank';
     if (combined.includes('YES')) return 'Yes Bank';
+    if (combined.includes('FLIPKART')) return 'Flipkart';
+    if (combined.includes('AMAZON')) return 'Amazon Pay';
     return undefined;
   }
 
@@ -37,15 +40,19 @@ export class SmsParser {
   public parse(text: string, date: Date = new Date(), senderHeader?: string): ParsedTransaction | null {
     if (!text || typeof text !== 'string') return null;
 
-    // Discard OTPs, verification codes, or promotional spam
+    // Discard OTPs, verification codes, or promotional spam EXCEPT when the OTP is for a transaction
     const isOtp = /\b(?:otp|one\s*time\s*password|verification\s*code|secret\s*code|pin)\b/i.test(text);
-    if (isOtp && !/(?:debited|spent|credited)/i.test(text)) {
+    const isOtpWithTxn = isOtp && /\b(?:txn|transaction|purchase|payment|pay|charging)\b/i.test(text);
+
+    if (isOtp && !isOtpWithTxn && !/(?:debited|spent|credited)/i.test(text)) {
       return null;
     }
 
     // 1. Transaction Type (Debit vs Credit)
     const isCredit = /\b(credited|deposited|added|received|refunded|inward)\b/i.test(text);
-    const isDebit = /\b(debited|spent|deducted|paid|withdrawn|used\s+for|sent)\b/i.test(text);
+    const isDebit =
+      /\b(debited|spent|deducted|paid|payment(?:\s+of)?|withdrawn|used(?:\s+for)?|using|sent|charged|txn\s+of|transaction\s+of)\b/i.test(text) ||
+      isOtpWithTxn;
 
     if (!isCredit && !isDebit) {
       return null;
@@ -53,7 +60,7 @@ export class SmsParser {
     const transactionType: 'expense' | 'income' = isCredit ? 'income' : 'expense';
 
     // 2. Amount Extraction (supports INR, Rs, ₹ with commas and decimals)
-    const amountRegex = /(?:INR|Rs\.?|₹|INR\.)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i;
+    const amountRegex = /(?:INR|Rs\.?|₹|INR\.)\s*([0-9,]+(?:\.[0-9]+)?)/i;
     const amountMatch = text.match(amountRegex);
     if (!amountMatch) return null;
 
@@ -77,7 +84,7 @@ export class SmsParser {
 
     // 5. Available Balance
     let balance: number | undefined;
-    const balMatch = text.match(/(?:avl(?:\.|ail)?\s*bal|avail(?:\.|able)?\s*bal|total\s*avail\.bal|bal(?:\s*is)?)\s*[:\s]*(?:INR|Rs\.?|₹)?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i);
+    const balMatch = text.match(/(?:avl(?:\.|ail)?\s*bal|avail(?:\.|able)?\s*bal|total\s*avail\.bal|updated\s*bal(?:ance)?|bal(?:\s*is)?)\s*[:\s]*(?:INR|Rs\.?|₹)?\s*([0-9,]+(?:\.[0-9]+)?)/i);
     if (balMatch) {
       balance = parseFloat(balMatch[1].replace(/,/g, ''));
     }
@@ -86,6 +93,7 @@ export class SmsParser {
     let transactionMode: ParsedTransaction['transactionMode'] = 'unknown';
     const lower = text.toLowerCase();
     if (lower.includes('upi') || lower.includes('@')) transactionMode = 'upi';
+    else if (lower.includes('gift card')) transactionMode = 'card';
     else if (lower.includes('card') || lower.includes('pos')) transactionMode = 'card';
     else if (lower.includes('neft')) transactionMode = 'neft';
     else if (lower.includes('imps')) transactionMode = 'imps';
@@ -102,7 +110,40 @@ export class SmsParser {
       if (counterParty.length > 50) counterParty = counterParty.substring(0, 50).trim();
     }
 
+    if (!counterParty || counterParty.toLowerCase() === 'vpa') {
+      if (/flipkart/i.test(text)) counterParty = 'Flipkart';
+      else if (/amazon/i.test(text)) counterParty = 'Amazon';
+      else if (/swiggy/i.test(text)) counterParty = 'Swiggy';
+      else if (/zomato/i.test(text)) counterParty = 'Zomato';
+      else if (/uber/i.test(text)) counterParty = 'Uber';
+      else if (/ola/i.test(text)) counterParty = 'Ola';
+      else if (/blinkit/i.test(text)) counterParty = 'Blinkit';
+      else if (/zepto/i.test(text)) counterParty = 'Zepto';
+      else if (/myntra/i.test(text)) counterParty = 'Myntra';
+    }
+
     const bank = this.identifyBank(senderHeader, text);
+
+    // 8. Date extraction from text if present (e.g. "on 03-10-26 21:48:10")
+    let parsedDate = date;
+    const dateMatch = text.match(/\bon\s+([0-3]?[0-9])[-/]([0-1]?[0-9])[-/](20\d{2}|\d{2})\s+([0-2]?[0-9]:[0-5][0-9](?::[0-5][0-9])?)/i);
+    if (dateMatch) {
+      const day = parseInt(dateMatch[1], 10);
+      const month = parseInt(dateMatch[2], 10) - 1;
+      let year = parseInt(dateMatch[3], 10);
+      if (year < 100) year += 2000;
+      const timeParts = dateMatch[4].split(':');
+      const hours = parseInt(timeParts[0], 10);
+      const minutes = parseInt(timeParts[1], 10);
+      const seconds = timeParts[2] ? parseInt(timeParts[2], 10) : 0;
+
+      const extracted = new Date(Date.UTC(year, month, day, hours, minutes, seconds));
+      // Convert IST (UTC+5:30) to UTC
+      const istToUtc = new Date(extracted.getTime() - 330 * 60000);
+      if (!isNaN(istToUtc.getTime())) {
+        parsedDate = istToUtc;
+      }
+    }
 
     return {
       amount,
@@ -111,12 +152,13 @@ export class SmsParser {
       counterParty,
       referenceNumber,
       balance,
-      transactionDate: date,
+      transactionDate: parsedDate,
       source: 'sms',
       rawText: text,
-      confidence: 0.9,
+      confidence: isOtpWithTxn ? 0.8 : 0.9,
       bank,
       transactionMode,
+      isOtp: isOtpWithTxn,
     };
   }
 }

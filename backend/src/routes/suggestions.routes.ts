@@ -340,6 +340,27 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       }
     }
 
+    // 2.5 OTP vs Confirmed Transaction Deduplication & Auto-Rejection
+    const isIncomingOtp = Boolean(
+      parsed.isOtp ||
+      /\b(?:otp|secret\s*otp)\b/i.test(rawTextToSave)
+    );
+
+    const otpPairingResult = await dedupEngine.handleOtpPairing(
+      userId,
+      amount,
+      transactionDate,
+      parsed.accountLast4,
+      isIncomingOtp
+    );
+
+    if (otpPairingResult.shouldDiscardIncoming) {
+      return res.status(409).json({
+        message: 'OTP message discarded: Confirmed transaction already exists within 15 minutes',
+        parsed,
+      });
+    }
+
     // 3. Multi-layer deduplication check (ref number, fuzzy date, amount, accountLast4, rawText)
     const isDup = await dedupEngine.isDuplicate(
       userId,
@@ -391,6 +412,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
         currencyCode: parsed.currencyCode || 'INR',
         transactionType: parsed.transactionType || 'expense',
         counterParty: parsed.counterParty,
+        note: isIncomingOtp ? '[OTP Transaction]' : ((parsed as any).note || null),
         referenceNumber: parsed.referenceNumber,
         accountLast4: parsed.accountLast4,
         walletAccountId: matchedAccountId,
@@ -491,6 +513,25 @@ router.post('/bulk', authenticate, async (req: Request, res: Response) => {
       }
     }
 
+    // 2.5 OTP vs Confirmed Transaction Deduplication & Auto-Rejection
+    const isIncomingOtp = Boolean(
+      parsed.isOtp ||
+      /\b(?:otp|secret\s*otp)\b/i.test(rawTextToSave)
+    );
+
+    const otpPairingResult = await dedupEngine.handleOtpPairing(
+      userId,
+      amount,
+      transactionDate,
+      parsed.accountLast4,
+      isIncomingOtp
+    );
+
+    if (otpPairingResult.shouldDiscardIncoming) {
+      duplicateCount++;
+      continue;
+    }
+
     // Multi-layer dedup check
     const isDup = await dedupEngine.isDuplicate(
       userId,
@@ -536,6 +577,7 @@ router.post('/bulk', authenticate, async (req: Request, res: Response) => {
         currencyCode: parsed.currencyCode || 'INR',
         transactionType: parsed.transactionType || 'expense',
         counterParty: parsed.counterParty,
+        note: isIncomingOtp ? '[OTP Transaction]' : ((parsed as any).note || (item as any).note || null),
         referenceNumber: parsed.referenceNumber,
         accountLast4: parsed.accountLast4,
         walletAccountId: matchedAccountId,

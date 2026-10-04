@@ -160,5 +160,92 @@ export class DedupEngine {
       },
     });
   }
+
+  /**
+   * Handles deduplication and pairing between OTP messages and confirmed debit/credit messages.
+   * - If incoming is a confirmed transaction (not OTP):
+   *   Finds any existing pending OTP suggestion within 15 minutes with matching amount and account.
+   *   Rejects the OTP suggestion (and purges its dedup entry) so the confirmed transaction replaces it.
+   * - If incoming is an OTP message:
+   *   Checks if a confirmed transaction already exists within 15 minutes.
+   *   If so, returns true (indicating this OTP should be discarded/skipped).
+   */
+  public async handleOtpPairing(
+    userId: string,
+    amount: number,
+    transactionDate: Date,
+    accountLast4?: string,
+    isIncomingOtp: boolean = false
+  ): Promise<{ shouldDiscardIncoming: boolean; supersededOtpId?: string }> {
+    const window15mStart = new Date(transactionDate.getTime() - 15 * 60000);
+    const window15mEnd = new Date(transactionDate.getTime() + 15 * 60000);
+
+    const accountFilter = accountLast4
+      ? { OR: [{ accountLast4 }, { accountLast4: null }] }
+      : {};
+
+    if (!isIncomingOtp) {
+      // Incoming is a confirmed transaction message.
+      // Look for pending OTP suggestions within 15 minutes.
+      const pendingOtpSuggestions = await prisma.suggestion.findMany({
+        where: {
+          userId,
+          status: 'pending',
+          amount,
+          ...accountFilter,
+          transactionDate: { gte: window15mStart, lte: window15mEnd },
+          OR: [
+            { note: { contains: '[OTP Transaction]' } },
+            { rawText: { contains: 'OTP', mode: 'insensitive' } },
+          ],
+        },
+      });
+
+      if (pendingOtpSuggestions.length > 0) {
+        for (const otpSugg of pendingOtpSuggestions) {
+          console.log(`Auto-rejecting pending OTP suggestion ${otpSugg.id} superseded by confirmed transaction SMS`);
+          await prisma.suggestion.update({
+            where: { id: otpSugg.id },
+            data: {
+              status: 'rejected',
+              actionedAt: new Date(),
+              note: ((otpSugg.note || '') + ' [Auto-rejected: Confirmed transaction SMS arrived within 15min]').trim(),
+            },
+          });
+          await prisma.dedupEntry.deleteMany({
+            where: { suggestionId: otpSugg.id },
+          });
+        }
+        return { shouldDiscardIncoming: false, supersededOtpId: pendingOtpSuggestions[0].id };
+      }
+
+      return { shouldDiscardIncoming: false };
+    } else {
+      // Incoming is an OTP transaction message.
+      // If a confirmed transaction already exists within 15 minutes, discard this OTP.
+      const existingConfirmedTxn = await prisma.suggestion.findFirst({
+        where: {
+          userId,
+          status: { in: ['pending', 'approved', 'synced'] },
+          amount,
+          ...accountFilter,
+          transactionDate: { gte: window15mStart, lte: window15mEnd },
+          NOT: {
+            OR: [
+              { note: { contains: '[OTP Transaction]' } },
+              { rawText: { contains: 'OTP', mode: 'insensitive' } },
+            ],
+          },
+        },
+      });
+
+      if (existingConfirmedTxn) {
+        console.log(`Discarding incoming OTP message: Confirmed transaction ${existingConfirmedTxn.id} already exists`);
+        return { shouldDiscardIncoming: true };
+      }
+
+      return { shouldDiscardIncoming: false };
+    }
+  }
 }
 
