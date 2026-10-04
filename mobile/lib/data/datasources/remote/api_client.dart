@@ -30,8 +30,8 @@ class ApiClient {
       : _dio = Dio(
           BaseOptions(
             baseUrl: baseUrl ?? ApiConstants.backendBaseUrl,
-            connectTimeout: const Duration(seconds: 15),
-            receiveTimeout: const Duration(seconds: 15),
+            connectTimeout: const Duration(seconds: 8),
+            receiveTimeout: const Duration(seconds: 20),
             headers: {
               'Content-Type': 'application/json',
               if (apiKey != null && apiKey.isNotEmpty) 'x-api-key': apiKey,
@@ -149,6 +149,12 @@ class ApiClient {
   /// Fetch suggestion statistics
   Future<Map<String, dynamic>> getSuggestionStats() async {
     final res = await _dio.get('/api/suggestions/stats');
+    return res.data as Map<String, dynamic>;
+  }
+
+  /// Fetch a single suggestion by id
+  Future<Map<String, dynamic>> getSuggestionById(String id) async {
+    final res = await _dio.get('/api/suggestions/$id');
     return res.data as Map<String, dynamic>;
   }
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 class CategoryPicker extends StatefulWidget {
@@ -52,19 +53,32 @@ class CategoryPicker extends StatefulWidget {
 class _CategoryPickerState extends State<CategoryPicker> {
   final TextEditingController _searchController = TextEditingController();
   String _filter = '';
+  Timer? _debounceTimer;
 
   @override
   void initState() {
     super.initState();
-    _searchController.addListener(() {
-      setState(() {
-        _filter = _searchController.text.trim().toLowerCase();
-      });
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  void _onSearchChanged() {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 150), () {
+      if (mounted) {
+        final newFilter = _searchController.text.trim().toLowerCase();
+        if (_filter != newFilter) {
+          setState(() {
+            _filter = newFilter;
+          });
+        }
+      }
     });
   }
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
+    _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     super.dispose();
   }

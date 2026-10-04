@@ -159,6 +159,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   void _showAccountDetailSheet(Map<String, dynamic> account) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final sheetBg = isDark ? const Color(0xFF0F172A) : Colors.white;
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final subtextColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
+    final dividerColor = isDark ? Colors.white12 : Colors.black12;
+
     final accountId = (account['walletAccountId'] ?? account['id']).toString();
     final accountName = account['name'] ?? 'Account';
     final balance = parseDouble(account['balance']);
@@ -169,7 +176,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: sheetBg,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -189,7 +196,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade600,
+                      color: isDark ? Colors.grey.shade600 : Colors.grey.shade300,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -205,10 +212,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           children: [
                             Text(
                               accountName,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.white,
+                                color: textColor,
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -218,7 +225,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                 'Mapped: •••• $last4',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.green.shade400,
+                                  color: Colors.green.shade500,
                                 ),
                               ),
                             ] else if (!isNone) ...[
@@ -227,7 +234,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                 'Not Mapped',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.grey.shade400,
+                                  color: subtextColor,
                                 ),
                               ),
                             ],
@@ -245,18 +252,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ],
                   ),
                 ),
-                const Divider(color: Colors.white12),
+                Divider(color: dividerColor),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
+                      Text(
                         'Recent Transactions',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: Colors.white70,
+                          color: isDark ? Colors.white70 : Colors.black87,
                         ),
                       ),
                       Row(
@@ -322,7 +329,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       return ListView.separated(
                         controller: scrollController,
                         itemCount: records.length,
-                        separatorBuilder: (_, __) => const Divider(color: Colors.white10, height: 1),
+                        separatorBuilder: (_, __) => Divider(color: dividerColor, height: 1),
                         itemBuilder: (context, idx) {
                           final rec = records[idx];
                           final rawAmount = rec['amount'];
@@ -353,11 +360,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             ),
                             title: Text(
                               party,
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                              style: TextStyle(color: textColor, fontWeight: FontWeight.w600),
                             ),
                             subtitle: Text(
                               '${dt != null ? DateFormatter.formatFull(dt) : ''} • $catName',
-                              style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                              style: TextStyle(color: subtextColor, fontSize: 12),
                             ),
                             trailing: Text(
                               '${isExp ? '-' : '+'}₹${amt.abs().toStringAsFixed(2)}',
@@ -385,11 +392,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final accountName = account['name'] ?? 'Investment Account';
     final color = _getAccountColor(account['color'], 0);
     final icon = _getAccountIcon(accountName, account['accountType']);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: isDark ? const Color(0xFF0F172A) : Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -408,11 +416,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final currentAccounts = ref.read(walletAccountsProvider);
     final reorderList = List<dynamic>.from(currentAccounts);
     final previousList = List<dynamic>.from(currentAccounts);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: isDark ? const Color(0xFF0F172A) : Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),

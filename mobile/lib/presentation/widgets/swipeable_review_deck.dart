@@ -652,20 +652,8 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              width: 90,
-              height: 90,
-              decoration: BoxDecoration(
-                color: Colors.green.shade100.withOpacity(0.4),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.check_circle_outline_rounded,
-                size: 56,
-                color: Colors.green.shade700,
-              ),
-            ),
-            const SizedBox(height: 20),
+            const _CelebrationBadge(),
+            const SizedBox(height: 24),
             Text(
               'All Caught Up! 🎉',
               style: theme.textTheme.headlineSmall?.copyWith(
@@ -752,6 +740,84 @@ class _SwipeableReviewDeckState extends State<SwipeableReviewDeck>
           ],
         ),
       ),
+    );
+  }
+}
+
+class _CelebrationBadge extends StatefulWidget {
+  const _CelebrationBadge();
+
+  @override
+  State<_CelebrationBadge> createState() => _CelebrationBadgeState();
+}
+
+class _CelebrationBadgeState extends State<_CelebrationBadge>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _glowAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+    _scaleAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.elasticOut,
+    );
+    _glowAnimation = Tween<double>(begin: 0.0, end: 16.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeOutQuad,
+      ),
+    );
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: _scaleAnimation.value,
+          child: Container(
+            width: 96,
+            height: 96,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF059669), Color(0xFF10B981)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF10B981).withOpacity(0.40),
+                  blurRadius: _glowAnimation.value + 12,
+                  spreadRadius: _glowAnimation.value / 3,
+                ),
+              ],
+            ),
+            child: const Center(
+              child: Icon(
+                Icons.check_rounded,
+                size: 56,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

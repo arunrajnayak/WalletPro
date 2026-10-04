@@ -31,13 +31,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _loadSettings();
   }
 
-  Future<void> _loadSettings() async {
+  Future<void> _loadSettings({bool forceRefresh = false}) async {
+    final cachedAccounts = ref.read(walletAccountsProvider);
+    final needAccounts = cachedAccounts.isEmpty || forceRefresh;
+
     setState(() => _isLoading = true);
     try {
       final futures = await Future.wait([
-        _api.getUserProfile(),
-        _api.getWalletAccounts(includeArchived: false),
-        _api.getWalletProfile().catchError((_) => <String, dynamic>{}),
+        _api.getUserProfile(forceRefresh: forceRefresh),
+        needAccounts
+            ? _api.getWalletAccounts(includeArchived: false, forceRefresh: forceRefresh)
+            : Future.value(cachedAccounts),
+        _api.getWalletProfile(forceRefresh: forceRefresh).catchError((_) => <String, dynamic>{}),
       ]);
 
       final profile = futures[0] as Map<String, dynamic>;
@@ -45,7 +50,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final walletProfile = futures[2] as Map<String, dynamic>;
 
       if (mounted) {
-        ref.read(walletAccountsProvider.notifier).setAccounts(accounts);
+        if (needAccounts) {
+          ref.read(walletAccountsProvider.notifier).setAccounts(accounts);
+        }
         setState(() {
           _walletConnected = profile['walletApiToken'] != null;
           _walletProfile = walletProfile;
@@ -60,6 +67,52 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  Color _getAccountColor(dynamic colorValue, int index) {
+    if (colorValue != null && colorValue is String && colorValue.isNotEmpty) {
+      try {
+        String hex = colorValue.replaceAll('#', '').trim();
+        if (hex.length == 6) hex = 'FF$hex';
+        if (hex.length == 8) return Color(int.parse('0x$hex'));
+      } catch (_) {}
+    }
+    const palette = [
+      Color(0xFF3B82F6),
+      Color(0xFF10B981),
+      Color(0xFF8B5CF6),
+      Color(0xFFF59E0B),
+      Color(0xFFEC4899),
+      Color(0xFF06B6D4),
+      Color(0xFF6366F1),
+      Color(0xFF14B8A6),
+    ];
+    return palette[index % palette.length];
+  }
+
+  IconData _getAccountIcon(String name, String? accountType) {
+    final lower = name.toLowerCase();
+    final typeLower = (accountType ?? '').toLowerCase();
+
+    if (typeLower.contains('credit') ||
+        lower.contains('credit') ||
+        lower.contains('card') ||
+        lower.contains('platinum') ||
+        lower.contains('rewards')) {
+      return Icons.credit_card;
+    }
+    if (lower.contains('mutual') ||
+        lower.contains('fund') ||
+        lower.contains('zerodha') ||
+        lower.contains('upstox') ||
+        lower.contains('stock') ||
+        lower.contains('share')) {
+      return Icons.trending_up_rounded;
+    }
+    if (typeLower.contains('cash') || lower.contains('cash') || lower.contains('wallet')) {
+      return Icons.payments_outlined;
+    }
+    return Icons.account_balance_outlined;
   }
 
   Future<void> _triggerWalletSync() async {
@@ -306,23 +359,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ],
                           ),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
-                              color: _walletConnected ? Colors.green.shade50 : Colors.red.shade50,
-                              borderRadius: BorderRadius.circular(8),
+                              color: _walletConnected
+                                  ? (isDark ? const Color(0xFF064E3B).withOpacity(0.6) : Colors.green.shade50)
+                                  : (isDark ? const Color(0xFF7F1D1D).withOpacity(0.6) : Colors.red.shade50),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _walletConnected
+                                    ? (isDark ? Colors.green.shade700 : Colors.green.shade300)
+                                    : (isDark ? Colors.red.shade700 : Colors.red.shade300),
+                                width: 0.8,
+                              ),
                             ),
                             child: Text(
                               _walletConnected ? 'Connected' : 'Disconnected',
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold,
-                                color: _walletConnected ? Colors.green.shade800 : Colors.red.shade800,
+                                color: _walletConnected
+                                    ? (isDark ? const Color(0xFF4ADE80) : Colors.green.shade800)
+                                    : (isDark ? const Color(0xFFF87171) : Colors.red.shade800),
                               ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 14),
                       Row(
                         children: [
                           Expanded(
@@ -331,9 +394,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               children: [
                                 Text('Bank Sync State', style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
                                 const SizedBox(height: 2),
-                                Text(
-                                  syncState == 'syncing' ? 'Syncing...' : 'Idle / Up to date',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 7,
+                                      height: 7,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: syncState == 'syncing'
+                                            ? Colors.orangeAccent
+                                            : (_walletConnected ? const Color(0xFF4ADE80) : Colors.grey),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      syncState == 'syncing' ? 'Syncing...' : 'Idle / Up to date',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -354,6 +432,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ),
                         ],
                       ),
+                      if (rateLimit != null) ...[
+                        const SizedBox(height: 10),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: capacityCalls > 0 ? (remainingCalls / capacityCalls).clamp(0.0, 1.0) : 1.0,
+                            minHeight: 5,
+                            backgroundColor: isDark ? Colors.white12 : Colors.grey.shade200,
+                            color: remainingCalls < 200
+                                ? Colors.redAccent
+                                : (remainingCalls < 500 ? Colors.orangeAccent : const Color(0xFF10B981)),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 14),
                       SizedBox(
                         width: double.infinity,
@@ -420,50 +512,82 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       const SizedBox(height: 8),
                       ...filteredAccounts.map((acc) {
                         final last4 = acc['last4Digits'];
-                        final type = acc['accountType'] ?? 'General';
+                        final type = (acc['accountType'] ?? 'General').toString();
                         final isNone = last4 == 'NONE';
                         final isMapped = last4 != null && !isNone && last4.toString().trim().isNotEmpty;
+                        final accIndex = filteredAccounts.indexOf(acc);
+                        final accColor = _getAccountColor(acc['color'], accIndex);
+                        final accIcon = _getAccountIcon(acc['name'] ?? '', type);
 
-                        return ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(acc['name'] ?? 'Account', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                          subtitle: Text(type, style: const TextStyle(fontSize: 12)),
-                          trailing: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: isNone
-                                  ? (isDark ? Colors.white10 : Colors.grey.shade100)
-                                  : (isMapped ? Colors.green.shade50 : Colors.orange.shade50),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: isNone
-                                    ? (isDark ? Colors.white24 : Colors.grey.shade300)
-                                    : (isMapped ? Colors.green.shade200 : Colors.orange.shade200),
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (isNone) ...[
-                                  Icon(Icons.block, size: 12, color: isDark ? Colors.white70 : Colors.grey.shade700),
-                                  const SizedBox(width: 4),
-                                ],
-                                Text(
-                                  isNone
-                                      ? "Don't Map"
-                                      : (isMapped ? '•••• $last4' : 'Tap to Map'),
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: isNone
-                                        ? (isDark ? Colors.white70 : Colors.grey.shade700)
-                                        : (isMapped ? Colors.green.shade800 : Colors.orange.shade800),
-                                  ),
-                                ),
-                              ],
+                        return Card(
+                          elevation: 0,
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            side: BorderSide(
+                              color: isDark ? const Color(0xFF334155).withOpacity(0.5) : const Color(0xFFE2E8F0),
+                              width: 1,
                             ),
                           ),
-                          onTap: () => _showMapAccountDialog(acc),
+                          color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                            leading: CircleAvatar(
+                              radius: 17,
+                              backgroundColor: accColor.withOpacity(0.18),
+                              child: Icon(accIcon, size: 17, color: accColor),
+                            ),
+                            title: Text(
+                              acc['name'] ?? 'Account',
+                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                            ),
+                            subtitle: Text(
+                              type,
+                              style: TextStyle(fontSize: 11.5, color: theme.colorScheme.onSurfaceVariant),
+                            ),
+                            trailing: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: isNone
+                                    ? (isDark ? Colors.white10 : Colors.grey.shade100)
+                                    : (isMapped
+                                        ? (isDark ? const Color(0xFF064E3B).withOpacity(0.5) : Colors.green.shade50)
+                                        : (isDark ? const Color(0xFF78350F).withOpacity(0.5) : Colors.orange.shade50)),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: isNone
+                                      ? (isDark ? Colors.white24 : Colors.grey.shade300)
+                                      : (isMapped
+                                          ? (isDark ? Colors.green.shade700 : Colors.green.shade300)
+                                          : (isDark ? Colors.orange.shade700 : Colors.orange.shade300)),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (isNone) ...[
+                                    Icon(Icons.block, size: 12, color: isDark ? Colors.white70 : Colors.grey.shade700),
+                                    const SizedBox(width: 4),
+                                  ],
+                                  Text(
+                                    isNone
+                                        ? "Don't Map"
+                                        : (isMapped ? '•••• $last4' : 'Tap to Map'),
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: isNone
+                                          ? (isDark ? Colors.white70 : Colors.grey.shade700)
+                                          : (isMapped
+                                              ? (isDark ? const Color(0xFF4ADE80) : Colors.green.shade800)
+                                              : (isDark ? const Color(0xFFFBBF24) : Colors.orange.shade800)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            onTap: () => _showMapAccountDialog(acc),
+                          ),
                         );
                       }),
                     ],

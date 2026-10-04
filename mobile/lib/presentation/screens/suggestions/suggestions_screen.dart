@@ -33,6 +33,8 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen>
   String? _error;
 
   List<dynamic> _historicalSuggestions = [];
+  Map<String, dynamic> _stats = {};
+  int _lastLoadedTabIndex = 0;
 
   // Tracks last known pending count to detect new-card arrivals reactively
   int _lastKnownPendingLength = 0;
@@ -44,7 +46,8 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen>
     WidgetsBinding.instance.addObserver(this);
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
-      if (!_tabController.indexIsChanging) {
+      if (!_tabController.indexIsChanging && _lastLoadedTabIndex != _tabController.index) {
+        _lastLoadedTabIndex = _tabController.index;
         _loadData();
       }
     });
@@ -69,8 +72,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
-      _api.clearSuggestionsCache();
-      _loadData();
+      _loadData(forceRefresh: true);
     }
   }
 
@@ -85,34 +87,50 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen>
     }
   }
 
-  Future<void> _loadData() async {
-    // Always bust suggestion cache so freshest data is fetched
-    _api.clearSuggestionsCache();
+  Future<void> _loadData({bool forceRefresh = false}) async {
+    if (forceRefresh) {
+      _api.clearSuggestionsCache();
+    }
     setState(() {
       _isLoading = true;
       _error = null;
     });
 
     try {
+      final localAccounts = ref.read(walletAccountsProvider);
+      final localCategories = ref.read(walletCategoriesProvider);
+      final needAccounts = localAccounts.isEmpty || forceRefresh;
+      final needCategories = localCategories.isEmpty || forceRefresh;
+
       final futures = await Future.wait([
         _api.getSuggestions(
           status: _currentStatusFilter,
           limit: _currentStatusFilter == 'pending' ? null : 100,
         ),
-        _api.getWalletCategories(),
-        _api.getWalletAccounts(),
+        needCategories
+            ? _api.getWalletCategories(forceRefresh: forceRefresh)
+            : Future.value(localCategories),
+        needAccounts
+            ? _api.getWalletAccounts(forceRefresh: forceRefresh)
+            : Future.value(localAccounts),
         _api.getSuggestionStats().catchError((_) => <String, dynamic>{}),
       ]);
 
       final suggestionsRes = futures[0] as List<dynamic>;
       final categoriesRes = futures[1] as List<dynamic>;
       final accountsRes = futures[2] as List<dynamic>;
-      AccountSorter.sortAccounts(accountsRes);
+      if (needAccounts) {
+        AccountSorter.sortAccounts(accountsRes);
+      }
       final statsRes = futures[3] as Map<String, dynamic>;
 
       if (mounted) {
-        ref.read(walletAccountsProvider.notifier).setAccounts(accountsRes);
-        ref.read(walletCategoriesProvider.notifier).setCategories(categoriesRes);
+        if (needAccounts) {
+          ref.read(walletAccountsProvider.notifier).setAccounts(accountsRes);
+        }
+        if (needCategories) {
+          ref.read(walletCategoriesProvider.notifier).setCategories(categoriesRes);
+        }
         if (_currentStatusFilter == 'pending') {
           ref.read(pendingSuggestionsProvider.notifier).setSuggestions(suggestionsRes);
         } else {
@@ -129,6 +147,7 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen>
         NotificationService.updatePendingCount(pendingCount);
 
         setState(() {
+          _stats = statsRes;
           _isLoading = false;
           _initialLoadDone = true;
           _lastKnownPendingLength = _currentStatusFilter == 'pending'
@@ -398,35 +417,6 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen>
     }
   }
 
-  /// Called during build whenever pendingSuggestions changes.
-  /// Shows a snackbar if new cards were pushed in reactively (e.g. by background scan).
-  void _onNewSuggestionsArrived(List<dynamic> suggestions) {
-    if (!_initialLoadDone || _isLoading || _currentStatusFilter != 'pending') return;
-    if (suggestions.length > _lastKnownPendingLength) {
-      final added = suggestions.length - _lastKnownPendingLength;
-      _lastKnownPendingLength = suggestions.length;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.fiber_new_rounded, color: Colors.white, size: 18),
-                const SizedBox(width: 8),
-                Text('$added new transaction${added > 1 ? 's' : ''} ready to review!'),
-              ],
-            ),
-            backgroundColor: Colors.green.shade700,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      });
-    } else {
-      _lastKnownPendingLength = suggestions.length;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -437,9 +427,37 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen>
     final isApprovedOrRejected = _currentStatusFilter != 'pending';
     final currentSuggestions = isApprovedOrRejected ? _historicalSuggestions : pendingSuggestions;
 
-    // Reactively detect new suggestions pushed in from background scan
-    _onNewSuggestionsArrived(pendingSuggestions);
+    final approvedCount = parseStatCount(_stats['approved']);
+    final rejectedCount = parseStatCount(_stats['rejected']);
 
+    // Reactively detect new suggestions pushed in from background scan without build-time side-effects
+    ref.listen<List<dynamic>>(pendingSuggestionsProvider, (previous, next) {
+      if (!_initialLoadDone || _isLoading || _currentStatusFilter != 'pending') return;
+      final prevLen = previous?.length ?? _lastKnownPendingLength;
+      if (next.length > prevLen) {
+        final added = next.length - prevLen;
+        _lastKnownPendingLength = next.length;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.fiber_new_rounded, color: Colors.white, size: 18),
+                  const SizedBox(width: 8),
+                  Text('$added new transaction${added > 1 ? 's' : ''} ready to review!'),
+                ],
+              ),
+              backgroundColor: Colors.green.shade700,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        });
+      } else {
+        _lastKnownPendingLength = next.length;
+      }
+    });
 
     return Scaffold(
       appBar: AppBar(
@@ -487,17 +505,17 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen>
                   if (pendingCount > 0) ...[
                     const SizedBox(width: 6),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.primaryContainer,
+                        color: const Color(0xFFDC2626),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
                         '$pendingCount',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.onPrimaryContainer,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white,
                         ),
                       ),
                     ),
@@ -505,8 +523,58 @@ class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen>
                 ],
               ),
             ),
-            const Tab(text: 'Approved'),
-            const Tab(text: 'Rejected'),
+            Tab(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Approved'),
+                  if (approvedCount > 0) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF16A34A).withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '$approvedCount',
+                        style: const TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF4ADE80),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Tab(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Rejected'),
+                  if (rejectedCount > 0) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEF4444).withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '$rejectedCount',
+                        style: const TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFFF87171),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ],
         ),
       ),

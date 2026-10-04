@@ -106,77 +106,106 @@ class SkeletonBox extends StatelessWidget {
   }
 }
 
-/// Skeleton for DashboardScreen
+/// Skeleton for DashboardScreen matching v1.13+ layout
 class DashboardSkeleton extends StatelessWidget {
   const DashboardSkeleton({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF0F172A) : Colors.white;
+
     return ShimmerLoading(
       child: ListView(
         physics: const NeverScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
-          // 1. Hero Net Worth Card
+          // 1. Hero Net Worth Card Skeleton
           Container(
-            height: 140,
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(22),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(22),
+              color: cardBg,
+              borderRadius: BorderRadius.circular(24),
             ),
             child: const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SkeletonBox(width: 120, height: 14),
-                SizedBox(height: 12),
-                SkeletonBox(width: 180, height: 28),
-                Spacer(),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    SkeletonBox(width: 130, height: 14),
+                    SkeletonBox(width: 70, height: 20, borderRadius: 20),
+                  ],
+                ),
+                SizedBox(height: 14),
+                SkeletonBox(width: 200, height: 36, borderRadius: 10),
+                SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    SkeletonBox(width: 65, height: 12),
+                    SkeletonBox(width: 75, height: 12),
+                  ],
+                ),
+                SizedBox(height: 6),
+                SkeletonBox(height: 7, borderRadius: 6),
+                SizedBox(height: 16),
                 Row(
                   children: [
-                    Expanded(child: SkeletonBox(height: 38, borderRadius: 10)),
-                    SizedBox(width: 12),
-                    Expanded(child: SkeletonBox(height: 38, borderRadius: 10)),
+                    Expanded(child: SkeletonBox(height: 52, borderRadius: 14)),
+                    SizedBox(width: 10),
+                    Expanded(child: SkeletonBox(height: 52, borderRadius: 14)),
                   ],
                 ),
               ],
             ),
           ),
 
-          const SizedBox(height: 16),
-
-          // 2. Action Grid (3 buttons)
-          const Row(
-            children: [
-              Expanded(child: SkeletonBox(height: 72, borderRadius: 16)),
-              SizedBox(width: 10),
-              Expanded(child: SkeletonBox(height: 72, borderRadius: 16)),
-              SizedBox(width: 10),
-              Expanded(child: SkeletonBox(height: 72, borderRadius: 16)),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          // 3. SMS Cutoff banner
-          const SkeletonBox(height: 64, borderRadius: 16),
-
           const SizedBox(height: 20),
 
-          // 4. Section Title
+          // 2. Section Title & Reorder
           const Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              SkeletonBox(width: 140, height: 18),
-              SkeletonBox(width: 60, height: 14),
+              Row(
+                children: [
+                  SkeletonBox(width: 150, height: 20),
+                  SizedBox(width: 8),
+                  SkeletonBox(width: 24, height: 18, borderRadius: 8),
+                ],
+              ),
+              SkeletonBox(width: 65, height: 20, borderRadius: 8),
             ],
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
 
-          // 5. Suggestion Card Skeleton
-          const _SuggestionCardSkeleton(margin: EdgeInsets.symmetric(vertical: 6)),
-          const _SuggestionCardSkeleton(margin: EdgeInsets.symmetric(vertical: 6)),
+          // 3. Filter Chips Row
+          const Row(
+            children: [
+              SkeletonBox(width: 60, height: 32, borderRadius: 10),
+              SizedBox(width: 8),
+              SkeletonBox(width: 74, height: 32, borderRadius: 10),
+              SizedBox(width: 8),
+              SkeletonBox(width: 72, height: 32, borderRadius: 10),
+              SizedBox(width: 8),
+              SkeletonBox(width: 90, height: 32, borderRadius: 10),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // 4. Grid of Account Cards (2 columns, 126 height each)
+          for (int row = 0; row < 3; row++) ...[
+            const Row(
+              children: [
+                Expanded(child: SkeletonBox(height: 126, borderRadius: 18)),
+                SizedBox(width: 10),
+                Expanded(child: SkeletonBox(height: 126, borderRadius: 18)),
+              ],
+            ),
+            if (row < 2) const SizedBox(height: 10),
+          ],
         ],
       ),
     );

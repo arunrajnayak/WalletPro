@@ -128,6 +128,29 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
 
   const suggestions = await prisma.suggestion.findMany({
     where: filters,
+    select: {
+      id: true,
+      userId: true,
+      source: true,
+      status: true,
+      amount: true,
+      currencyCode: true,
+      transactionType: true,
+      counterParty: true,
+      note: true,
+      referenceNumber: true,
+      accountLast4: true,
+      walletAccountId: true,
+      walletCategoryId: true,
+      walletCategoryName: true,
+      walletRecordId: true,
+      rawText: true,
+      sourceId: true,
+      aiConfidence: true,
+      transactionDate: true,
+      createdAt: true,
+      actionedAt: true,
+    },
     orderBy: [
       { transactionDate: 'desc' },
       { createdAt: 'desc' },
@@ -223,6 +246,29 @@ router.get('/recent-categories', authenticate, async (req: Request, res: Respons
     return res.json(categories);
   } catch (error: any) {
     return res.status(500).json({ error: 'Failed to fetch recent categories', details: error.message });
+  }
+});
+
+// GET /api/suggestions/:id - Get a single suggestion by id
+router.get('/:id', authenticate, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const id = req.params.id as string;
+
+    const suggestion = await prisma.suggestion.findFirst({
+      where: { id, userId },
+    });
+
+    if (!suggestion) {
+      return res.status(404).json({ error: 'Suggestion not found' });
+    }
+
+    res.json({
+      ...suggestion,
+      amount: Number(suggestion.amount),
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch suggestion', details: error.message });
   }
 });
 

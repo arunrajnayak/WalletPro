@@ -132,19 +132,27 @@ router.get('/accounts', authenticate, async (req: Request, res: Response) => {
 
     if (remoteAccounts.length > 0) {
       const remoteMap = new Map(remoteAccounts.map((a: any) => [a.id, a]));
-      const enriched = localAccounts.map(local => {
-        const remote = remoteMap.get(local.walletAccountId);
-        const rawBal = remote?.balance?.currentBalance ?? remote?.balance?.rawCurrentBalance ?? remote?.balance?.initial;
-        const balance = typeof rawBal === 'number' ? rawBal : (rawBal !== undefined ? parseFloat(rawBal) || 0 : 0);
+      const enriched = localAccounts
+        .filter(local => {
+          if (!includeArchived) {
+            // When querying active accounts only, omit any accounts not present in remote active accounts
+            return remoteMap.has(local.walletAccountId);
+          }
+          return true;
+        })
+        .map(local => {
+          const remote = remoteMap.get(local.walletAccountId);
+          const rawBal = remote?.balance?.currentBalance ?? remote?.balance?.rawCurrentBalance ?? remote?.balance?.initial;
+          const balance = typeof rawBal === 'number' ? rawBal : (rawBal !== undefined ? parseFloat(rawBal) || 0 : 0);
 
-        return {
-          ...local,
-          color: remote?.color || null,
-          balance: balance,
-          isBankSync: remote?.isBankSync || false,
-          isInvestmentAccount: remote?.isInvestmentAccount || false,
-        };
-      });
+          return {
+            ...local,
+            color: remote?.color || null,
+            balance: balance,
+            isBankSync: remote?.isBankSync || false,
+            isInvestmentAccount: remote?.isInvestmentAccount || false,
+          };
+        });
       return res.json(enriched);
     }
   } catch (err: any) {
@@ -201,17 +209,11 @@ router.get('/quickview', authenticate, async (req: Request, res: Response) => {
   try {
     const client = new WalletClient(user.walletApiToken);
 
-    // Fetch accounts and recent records
-    const [remoteAccounts, recentRecords] = await Promise.all([
-      client.getAllAccounts({ archived: false }).catch(err => {
-        console.warn('Failed to fetch remote accounts:', err.message);
-        return [];
-      }),
-      client.getRecords({ limit: 15 }).catch(err => {
-        console.warn('Failed to fetch recent records:', err.response?.data || err.message);
-        return [];
-      }),
-    ]);
+    // Fetch only accounts — recentRecords intentionally omitted (not consumed by mobile client)
+    const remoteAccounts = await client.getAllAccounts({ archived: false }).catch(err => {
+      console.warn('Failed to fetch remote accounts:', err.message);
+      return [];
+    });
 
     let accountsList: any[] = [];
     if (remoteAccounts.length > 0) {
@@ -303,7 +305,6 @@ router.get('/quickview', authenticate, async (req: Request, res: Response) => {
         accountsCount: accountsList.length,
       },
       budgets: [],
-      recentRecords: recentRecords || [],
     });
   } catch (err: any) {
     console.error('Quickview error:', err.message);

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/utils/date_formatter.dart';
 import '../../core/utils/account_sorter.dart';
@@ -609,7 +610,7 @@ class _SuggestionCardState extends State<SuggestionCard> {
                     ),
                   ],
                   const Spacer(),
-                  if (aiConfidence != null && aiConfidence >= 0.5)
+                  if (aiConfidence != null && aiConfidence >= 0.5) ...[
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
                       decoration: BoxDecoration(
@@ -629,6 +630,20 @@ class _SuggestionCardState extends State<SuggestionCard> {
                         ),
                       ),
                     ),
+                    const SizedBox(width: 6),
+                  ],
+                  InkWell(
+                    onTap: () => context.push('/suggestions/${widget.suggestion['id']}'),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.all(2),
+                      child: Icon(
+                        Icons.info_outline_rounded,
+                        size: 18,
+                        color: theme.colorScheme.onSurfaceVariant.withOpacity(0.7),
+                      ),
+                    ),
+                  ),
                 ],
               ),
 
