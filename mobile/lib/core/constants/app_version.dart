@@ -1,9 +1,9 @@
 class AppVersion {
   /// Current runtime app semantic version (must match mobile/pubspec.yaml)
-  static const String version = '1.14.0';
+  static const String version = '1.15.0';
 
   /// Current build number
-  static const int buildNumber = 30;
+  static const int buildNumber = 31;
 
   /// GitHub repository slug
   static const String repoOwner = 'arunrajnayak';
