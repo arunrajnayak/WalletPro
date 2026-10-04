@@ -376,21 +376,39 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       return res.status(409).json({ message: 'Duplicate transaction detected', parsed });
     }
 
-    // Auto-match Wallet account if accountLast4 matches a mapped account
+    // Auto-match Wallet account (by last 4 digits or semantic match for FASTag, Flipkart, Amazon)
     let matchedAccountId: string | undefined;
-    if (parsed.accountLast4) {
-      const activeMappedAccounts = await prisma.walletAccount.findMany({
-        where: { userId, isActive: true, last4Digits: { not: null } },
-      });
+    const activeAccounts = await prisma.walletAccount.findMany({
+      where: { userId, isActive: true },
+    });
 
-      const matchedAccount = activeMappedAccounts.find((acc) => {
+    if (parsed.accountLast4) {
+      const matchedAccount = activeAccounts.find((acc) => {
         if (!acc.last4Digits) return false;
-        const digitsList = acc.last4Digits.split(/[,;\s]+/).map((s) => s.trim());
-        return digitsList.includes(parsed.accountLast4) || acc.last4Digits === parsed.accountLast4;
+        const digitsList = acc.last4Digits.split(/[,;\s]+/).map((s) => s.trim().toUpperCase());
+        return digitsList.includes(parsed.accountLast4!.toUpperCase()) || acc.last4Digits.toUpperCase() === parsed.accountLast4!.toUpperCase();
       });
 
       if (matchedAccount) {
         matchedAccountId = matchedAccount.walletAccountId;
+      }
+    }
+
+    if (!matchedAccountId) {
+      const lowerText = rawTextToSave.toLowerCase();
+      const isFastag = parsed.transactionMode === 'fastag' || /fastag/i.test(lowerText) || (parsed.accountLast4 && /^\d{4}$/.test(parsed.accountLast4) && /toll|plaza|mall/i.test(lowerText));
+      const isFlipkart = parsed.bank === 'Flipkart' || /flipkart\s*(?:gift\s*card|gc)/i.test(lowerText);
+      const isAmazon = parsed.bank === 'Amazon Pay' || /amazon\s*pay/i.test(lowerText);
+
+      if (isFastag) {
+        const fastagAcc = activeAccounts.find((acc) => /fastag/i.test(acc.name));
+        if (fastagAcc) matchedAccountId = fastagAcc.walletAccountId;
+      } else if (isFlipkart) {
+        const flipkartAcc = activeAccounts.find((acc) => /flipkart/i.test(acc.name));
+        if (flipkartAcc) matchedAccountId = flipkartAcc.walletAccountId;
+      } else if (isAmazon) {
+        const amazonAcc = activeAccounts.find((acc) => /amazon/i.test(acc.name));
+        if (amazonAcc) matchedAccountId = amazonAcc.walletAccountId;
       }
     }
 
@@ -455,9 +473,9 @@ router.post('/bulk', authenticate, async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'transactions array is required and must not be empty' });
   }
 
-  // Pre-fetch active mapped accounts once for the entire batch
+  // Pre-fetch active accounts once for the entire batch
   const activeMappedAccounts = await prisma.walletAccount.findMany({
-    where: { userId, isActive: true, last4Digits: { not: null } },
+    where: { userId, isActive: true },
   });
 
   const createdItems: any[] = [];
@@ -553,11 +571,29 @@ router.post('/bulk', authenticate, async (req: Request, res: Response) => {
     if (parsed.accountLast4) {
       const matchedAccount = activeMappedAccounts.find((acc) => {
         if (!acc.last4Digits) return false;
-        const digitsList = acc.last4Digits.split(/[,;\s]+/).map((s: string) => s.trim());
-        return digitsList.includes(parsed.accountLast4) || acc.last4Digits === parsed.accountLast4;
+        const digitsList = acc.last4Digits.split(/[,;\s]+/).map((s: string) => s.trim().toUpperCase());
+        return digitsList.includes(parsed.accountLast4!.toUpperCase()) || acc.last4Digits.toUpperCase() === parsed.accountLast4!.toUpperCase();
       });
       if (matchedAccount) {
         matchedAccountId = matchedAccount.walletAccountId;
+      }
+    }
+
+    if (!matchedAccountId) {
+      const lowerText = rawTextToSave.toLowerCase();
+      const isFastag = parsed.transactionMode === 'fastag' || /fastag/i.test(lowerText) || (parsed.accountLast4 && /^\d{4}$/.test(parsed.accountLast4) && /toll|plaza|mall/i.test(lowerText));
+      const isFlipkart = parsed.bank === 'Flipkart' || /flipkart\s*(?:gift\s*card|gc)/i.test(lowerText);
+      const isAmazon = parsed.bank === 'Amazon Pay' || /amazon\s*pay/i.test(lowerText);
+
+      if (isFastag) {
+        const fastagAcc = activeMappedAccounts.find((acc) => /fastag/i.test(acc.name));
+        if (fastagAcc) matchedAccountId = fastagAcc.walletAccountId;
+      } else if (isFlipkart) {
+        const flipkartAcc = activeMappedAccounts.find((acc) => /flipkart/i.test(acc.name));
+        if (flipkartAcc) matchedAccountId = flipkartAcc.walletAccountId;
+      } else if (isAmazon) {
+        const amazonAcc = activeMappedAccounts.find((acc) => /amazon/i.test(acc.name));
+        if (amazonAcc) matchedAccountId = amazonAcc.walletAccountId;
       }
     }
 

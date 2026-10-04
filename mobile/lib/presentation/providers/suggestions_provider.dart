@@ -129,6 +129,29 @@ class PendingSuggestionsNotifier extends StateNotifier<List<dynamic>> {
         }
       }
 
+      if (matchedAccount == null) {
+        final rawText = (map['rawText'] ?? '').toString().toLowerCase();
+        final txMode = (map['transactionMode'] ?? '').toString().toLowerCase();
+        final isFastag = txMode == 'fastag' || rawText.contains('fastag') || (rawLast4.isNotEmpty && RegExp(r'^\d{4}$').hasMatch(rawLast4) && (rawText.contains('toll') || rawText.contains('plaza') || rawText.contains('mall')));
+        final isFlipkart = rawText.contains('flipkart');
+        final isAmazon = rawText.contains('amazon pay') || rawText.contains('amazon');
+
+        for (final acc in accounts) {
+          if (acc is! Map) continue;
+          final name = (acc['name'] ?? '').toString().toLowerCase();
+          if (isFastag && name.contains('fastag')) {
+            matchedAccount = acc;
+            break;
+          } else if (isFlipkart && name.contains('flipkart')) {
+            matchedAccount = acc;
+            break;
+          } else if (isAmazon && name.contains('amazon')) {
+            matchedAccount = acc;
+            break;
+          }
+        }
+      }
+
       if (matchedAccount != null) {
         map['walletAccountId'] = matchedAccount['walletAccountId'] ?? matchedAccount['id'];
         map['walletAccountName'] = matchedAccount['name'];

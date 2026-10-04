@@ -428,16 +428,61 @@ router.patch('/accounts/:id/map-last4', authenticate, async (req: Request, res: 
   res.json(account);
 });
 
-// GET /api/wallet/categories - Get cached categories
+// GET /api/wallet/categories - Get cached categories enriched with history-based usageCount
 router.get('/categories', authenticate, async (req: Request, res: Response) => {
   const userId = req.user.id;
 
-  const categories = await prisma.walletCategoryCache.findMany({
-    where: { userId },
-    orderBy: [{ groupName: 'asc' }, { name: 'asc' }],
+  const [categories, categoryUsage, merchantUsage] = await Promise.all([
+    prisma.walletCategoryCache.findMany({
+      where: { userId },
+    }),
+    prisma.suggestion.groupBy({
+      by: ['walletCategoryId'],
+      where: {
+        userId,
+        walletCategoryId: { not: null },
+        status: { in: ['approved', 'synced'] },
+      },
+      _count: {
+        walletCategoryId: true,
+      },
+    }),
+    prisma.merchantCategory.findMany({
+      where: { userId },
+      select: {
+        walletCategoryId: true,
+        usageCount: true,
+      },
+    }),
+  ]);
+
+  const usageMap = new Map<string, number>();
+  for (const u of categoryUsage) {
+    if (u.walletCategoryId) {
+      usageMap.set(u.walletCategoryId, (usageMap.get(u.walletCategoryId) || 0) + u._count.walletCategoryId);
+    }
+  }
+  for (const m of merchantUsage) {
+    if (m.walletCategoryId) {
+      usageMap.set(m.walletCategoryId, (usageMap.get(m.walletCategoryId) || 0) + (m.usageCount || 1));
+    }
+  }
+
+  const enriched = categories.map((cat) => ({
+    ...cat,
+    usageCount: usageMap.get(cat.walletCategoryId) || 0,
+  }));
+
+  // Sort by groupName asc, then usageCount desc, then name asc
+  enriched.sort((a, b) => {
+    const gComp = (a.groupName || '').localeCompare(b.groupName || '');
+    if (gComp !== 0) return gComp;
+    const uDiff = (b.usageCount || 0) - (a.usageCount || 0);
+    if (uDiff !== 0) return uDiff;
+    return (a.name || '').localeCompare(b.name || '');
   });
 
-  res.json(categories);
+  res.json(enriched);
 });
 
 // POST /api/wallet/sync - Force sync accounts and categories from BudgetBakers Wallet

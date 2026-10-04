@@ -141,6 +141,81 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
     } catch (_) {}
   }
 
+  List<Map<String, dynamic>> _resolveQuickCategories() {
+    if (_recentCategories.isNotEmpty) {
+      return _recentCategories;
+    }
+
+    final rawText = (widget.suggestion['rawText'] ?? '').toString().toLowerCase();
+    final counterParty = (widget.suggestion['counterParty'] ?? '').toString().toLowerCase();
+    final categories = widget.categories;
+
+    final isFlipkart = counterParty.contains('flipkart') || rawText.contains('flipkart');
+    final isAmazon = counterParty.contains('amazon') || rawText.contains('amazon');
+    final isFood = counterParty.contains('swiggy') || counterParty.contains('zomato') || rawText.contains('swiggy') || rawText.contains('zomato');
+    final isFastag = counterParty.contains('fastag') || rawText.contains('fastag') || (widget.suggestion['transactionMode'] == 'fastag');
+
+    final matches = <Map<String, dynamic>>[];
+
+    int getUsage(dynamic c) {
+      if (c is! Map) return 0;
+      final u = c['usageCount'];
+      if (u is int) return u;
+      return int.tryParse(u?.toString() ?? '') ?? 0;
+    }
+
+    if (isFlipkart || isAmazon) {
+      for (final cat in categories) {
+        if (cat is! Map) continue;
+        final name = (cat['name'] ?? '').toString().toLowerCase();
+        final group = (cat['groupName'] ?? '').toString().toLowerCase();
+        if (name.contains('shopping') || group.contains('shopping') || name.contains('grocer') || name.contains('electronic') || name.contains('gift') || name.contains('voucher')) {
+          final id = cat['walletCategoryId'] ?? cat['id'];
+          if (id != null) matches.add({'id': id, 'name': cat['name']});
+        }
+      }
+    } else if (isFood) {
+      for (final cat in categories) {
+        if (cat is! Map) continue;
+        final name = (cat['name'] ?? '').toString().toLowerCase();
+        final group = (cat['groupName'] ?? '').toString().toLowerCase();
+        if (name.contains('food') || group.contains('food') || name.contains('restaurant') || name.contains('dining') || name.contains('drink')) {
+          final id = cat['walletCategoryId'] ?? cat['id'];
+          if (id != null) matches.add({'id': id, 'name': cat['name']});
+        }
+      }
+    } else if (isFastag) {
+      for (final cat in categories) {
+        if (cat is! Map) continue;
+        final name = (cat['name'] ?? '').toString().toLowerCase();
+        final group = (cat['groupName'] ?? '').toString().toLowerCase();
+        if (name.contains('toll') || name.contains('fastag') || name.contains('transport') || group.contains('transport') || name.contains('vehicle') || name.contains('parking')) {
+          final id = cat['walletCategoryId'] ?? cat['id'];
+          if (id != null) matches.add({'id': id, 'name': cat['name']});
+        }
+      }
+    }
+
+    if (matches.isNotEmpty) {
+      return matches.take(5).toList();
+    }
+
+    final sortedByUsage = List<dynamic>.from(categories)
+      ..sort((a, b) => getUsage(b).compareTo(getUsage(a)));
+
+    final popular = <Map<String, dynamic>>[];
+    for (final cat in sortedByUsage) {
+      if (cat is! Map) continue;
+      final id = cat['walletCategoryId'] ?? cat['id'];
+      final name = cat['name']?.toString();
+      if (id != null && name != null && name.isNotEmpty) {
+        popular.add({'id': id, 'name': name});
+        if (popular.length >= 5) break;
+      }
+    }
+    return popular;
+  }
+
   void _initFromSuggestion({bool notify = true, bool triggerSetState = false}) {
     void apply() {
       _transactionType = (widget.suggestion['transactionType'] ?? 'expense').toString().toLowerCase();
@@ -161,6 +236,30 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
             if (accLast4 == null || accLast4.isEmpty || accLast4.toUpperCase() == 'NONE') return false;
             final digitsList = accLast4.split(RegExp(r'[,;\s]+')).map((s) => s.trim()).toList();
             return digitsList.contains(last4) || accLast4 == last4;
+          },
+          orElse: () => null,
+        );
+        if (match != null) {
+          _selectedAccountId = match['walletAccountId'] ?? match['id'];
+          _selectedAccountName = match['name'];
+        }
+      }
+
+      if (_selectedAccountId == null) {
+        final rawText = (widget.suggestion['rawText'] ?? '').toString().toLowerCase();
+        final txMode = (widget.suggestion['transactionMode'] ?? '').toString().toLowerCase();
+        final isFastag = txMode == 'fastag' || rawText.contains('fastag') || (last4 != null && RegExp(r'^\d{4}$').hasMatch(last4) && (rawText.contains('toll') || rawText.contains('plaza') || rawText.contains('mall')));
+        final isFlipkart = rawText.contains('flipkart');
+        final isAmazon = rawText.contains('amazon pay') || rawText.contains('amazon');
+
+        final match = widget.accounts.firstWhere(
+          (acc) {
+            if (acc is! Map) return false;
+            final name = (acc['name'] ?? '').toString().toLowerCase();
+            if (isFastag && name.contains('fastag')) return true;
+            if (isFlipkart && name.contains('flipkart')) return true;
+            if (isAmazon && name.contains('amazon')) return true;
+            return false;
           },
           orElse: () => null,
         );
@@ -747,8 +846,9 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
                       onTap: _openCategoryPicker,
                     ),
 
-                    // Quick-select chips for recent categories for this account
-                    if (_selectedAccountId != null && _recentCategories.isNotEmpty) ...[
+                    // Quick-select chips (account recent, merchant-based, or top popular)
+                    final quickCategories = _resolveQuickCategories();
+                    if (quickCategories.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 2),
@@ -760,7 +860,9 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
                                 Icon(Icons.flash_on_rounded, size: 12, color: theme.colorScheme.primary),
                                 const SizedBox(width: 4),
                                 Text(
-                                  'Frequent for ${_selectedAccountName ?? "account"}:',
+                                  _recentCategories.isNotEmpty && _selectedAccountName != null
+                                      ? 'Frequent for ${_selectedAccountName}:'
+                                      : 'Quick categories:',
                                   style: TextStyle(
                                     fontSize: 10.5,
                                     fontWeight: FontWeight.w600,
@@ -774,7 +876,7 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
                               scrollDirection: Axis.horizontal,
                               physics: const BouncingScrollPhysics(),
                               child: Row(
-                                children: _recentCategories.take(5).map((cat) {
+                                children: quickCategories.take(5).map((cat) {
                                   final isSel = cat['id'] == _selectedCategoryId;
                                   return Padding(
                                     padding: const EdgeInsets.only(right: 6),

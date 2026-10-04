@@ -6,7 +6,7 @@ class SmsParser {
   static final _typeRegex = RegExp(r'\b(debited|credited|spent|withdrawn|transferred|deposited|sent|received|used|using|charged|paid|payment|txn|transaction)\b', caseSensitive: false);
   static final _upiRegex = RegExp(r'(?:UPI\s*(?:Ref|ref)(?:\s*(?:No|no)\.?)?|Ref\s*(?:No|no)\.?|UTR)[\s:\.\-]*([0-9]{6,16})', caseSensitive: false);
   static final _balanceRegex = RegExp(r'(?:Avl|Avail(?:able)?|Updated|Total)?\s*Bal(?:ance)?\s*[:\s]*(?:INR|Rs\.?)?\s*([\d,]+\.?\d*)', caseSensitive: false);
-  static final _merchantRegex = RegExp(r'(?:to\s+vpa|to|at)\s+([A-Za-z0-9\s\.\&\*\-]+?)(?:\s+(?:for|on|via|UPI|Ref|avl|bal|using|date|\.|\,)|$)', caseSensitive: false);
+  static final _merchantRegex = RegExp(r'(?:to\s+vpa|to|at)\s+([A-Za-z0-9\s\&\*\-]+?)(?:\s+(?:for|on|via|with|using|UPI|Ref|avl|bal|date|limit)|[\.,]|$)', caseSensitive: false);
 
   // Hardcoded start date: 1st September 2026 UTC
   static final DateTime hardcodedStartDate = DateTime.utc(2026, 9, 1);
@@ -28,10 +28,12 @@ class SmsParser {
         return null;
       }
 
+      final isFastag = RegExp(r'\b(fastag|toll|parking|plaza)\b', caseSensitive: false).hasMatch(smsText);
+
       final amountMatch = _amountRegex.firstMatch(smsText);
       final typeMatch = _typeRegex.firstMatch(smsText);
 
-      if (amountMatch == null || typeMatch == null) {
+      if (amountMatch == null || (typeMatch == null && !isFastag)) {
         return null; // Not a financial transaction
       }
 
@@ -39,17 +41,25 @@ class SmsParser {
       final amount = double.tryParse(rawAmountStr ?? '') ?? 0.0;
       if (amount <= 0) return null;
 
-      final isCredit = RegExp(r'\b(credited|deposited|added|received)\b', caseSensitive: false).hasMatch(typeMatch.group(1)!);
+      final isCredit = typeMatch != null && RegExp(r'\b(credited|deposited|added|received)\b', caseSensitive: false).hasMatch(typeMatch.group(1)!);
       final transactionType = isCredit ? 'income' : 'expense';
 
       final accountMatch = _accountRegex.firstMatch(smsText);
+      String? accountLast4 = accountMatch?.group(1);
+      if (accountLast4 == null && (isFastag || RegExp(r'\b[A-Z]{2}\s?[0-9]{1,2}\s?[A-Z]{1,3}\s?[0-9]{4}\b', caseSensitive: false).hasMatch(smsText))) {
+        final vehicleMatch = RegExp(r'\b[A-Z]{2}\s?[0-9]{1,2}\s?[A-Z]{1,3}\s?([0-9]{4})\b', caseSensitive: false).firstMatch(smsText);
+        accountLast4 = vehicleMatch?.group(1);
+      }
+
       final upiMatch = _upiRegex.firstMatch(smsText);
       final balanceMatch = _balanceRegex.firstMatch(smsText);
       final merchantMatch = _merchantRegex.firstMatch(smsText);
 
       String? counterParty = merchantMatch?.group(1)?.trim();
       if (counterParty == null || counterParty.isEmpty || counterParty.toLowerCase() == 'vpa') {
-        if (RegExp(r'flipkart', caseSensitive: false).hasMatch(smsText)) {
+        if (isFastag) {
+          counterParty = 'FASTag Toll';
+        } else if (RegExp(r'flipkart', caseSensitive: false).hasMatch(smsText)) {
           counterParty = 'Flipkart';
         } else if (RegExp(r'amazon', caseSensitive: false).hasMatch(smsText)) {
           counterParty = 'Amazon';
@@ -92,13 +102,14 @@ class SmsParser {
       return {
         'amount': amount,
         'transactionType': transactionType,
-        'accountLast4': accountMatch?.group(1),
+        'accountLast4': accountLast4,
         'referenceNumber': upiMatch?.group(1),
         'counterParty': counterParty,
         'balance': double.tryParse(balanceMatch?.group(1)?.replaceAll(',', '') ?? ''),
         'transactionDate': effectiveDate.toIso8601String(),
         'rawText': smsText,
         'isOtp': isOtpWithTxn,
+        'transactionMode': isFastag ? 'fastag' : (smsText.toLowerCase().contains('gift card') ? 'card' : null),
       };
     } catch (e) {
       debugPrint('SMS parsing error: $e');

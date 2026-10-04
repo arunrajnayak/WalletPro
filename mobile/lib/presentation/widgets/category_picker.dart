@@ -87,6 +87,13 @@ class _CategoryPickerState extends State<CategoryPicker> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    int getUsage(dynamic c) {
+      if (c is! Map) return 0;
+      final u = c['usageCount'];
+      if (u is int) return u;
+      return int.tryParse(u?.toString() ?? '') ?? 0;
+    }
+
     final filtered = widget.categories.where((cat) {
       if (_filter.isEmpty) return true;
       final name = (cat['name'] ?? '').toString().toLowerCase();
@@ -94,12 +101,44 @@ class _CategoryPickerState extends State<CategoryPicker> {
       return name.contains(_filter) || group.contains(_filter);
     }).toList();
 
+    if (_filter.isNotEmpty) {
+      filtered.sort((a, b) {
+        final uA = getUsage(a);
+        final uB = getUsage(b);
+        if (uB != uA) return uB.compareTo(uA);
+        return (a['name'] ?? '').toString().compareTo((b['name'] ?? '').toString());
+      });
+    }
+
     // Group categories by groupName
     final Map<String, List<dynamic>> grouped = {};
     for (final cat in filtered) {
       final groupName = cat['groupName'] ?? 'General';
       grouped.putIfAbsent(groupName, () => []).add(cat);
     }
+
+    for (final group in grouped.values) {
+      group.sort((a, b) {
+        final uA = getUsage(a);
+        final uB = getUsage(b);
+        if (uB != uA) return uB.compareTo(uA);
+        return (a['name'] ?? '').toString().compareTo((b['name'] ?? '').toString());
+      });
+    }
+
+    final sortedGroupKeys = grouped.keys.toList()
+      ..sort((gA, gB) {
+        final totalUsageA = grouped[gA]!.fold<int>(0, (sum, c) => sum + getUsage(c));
+        final totalUsageB = grouped[gB]!.fold<int>(0, (sum, c) => sum + getUsage(c));
+        if (totalUsageB != totalUsageA) return totalUsageB.compareTo(totalUsageA);
+        return gA.compareTo(gB);
+      });
+
+    final popularCategories = widget.categories
+        .where((c) => getUsage(c) > 0)
+        .toList()
+      ..sort((a, b) => getUsage(b).compareTo(getUsage(a)));
+    final topPopular = popularCategories.take(6).toList();
 
     return Column(
       children: [
@@ -221,6 +260,78 @@ class _CategoryPickerState extends State<CategoryPicker> {
           ),
         ],
 
+        // Popular Categories from user history (if not searching)
+        if (_filter.isEmpty && topPopular.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.star_rounded, size: 14, color: Color(0xFFF59E0B)),
+                    const SizedBox(width: 6),
+                    Text(
+                      'POPULAR CATEGORIES',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: topPopular.map((cat) {
+                    final catId = cat['walletCategoryId'] ?? cat['id'];
+                    final isSel = catId == widget.selectedCategoryId;
+                    return InkWell(
+                      onTap: () {
+                        widget.onSelect(cat as Map<String, dynamic>);
+                      },
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: isSel
+                              ? theme.colorScheme.primaryContainer
+                              : theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: isSel ? theme.colorScheme.primary : theme.colorScheme.outlineVariant.withOpacity(0.5),
+                            width: isSel ? 1.5 : 1.0,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              cat['name'] ?? 'Category',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: isSel ? FontWeight.bold : FontWeight.w600,
+                                color: isSel ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onSurface,
+                              ),
+                            ),
+                            if (isSel) ...[
+                              const SizedBox(width: 4),
+                              Icon(Icons.check, size: 13, color: theme.colorScheme.primary),
+                            ],
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const Divider(height: 18),
+              ],
+            ),
+          ),
+        ],
+
         // Category List
         Expanded(
           child: filtered.isEmpty
@@ -236,9 +347,9 @@ class _CategoryPickerState extends State<CategoryPicker> {
                 )
               : ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: grouped.keys.length,
+                  itemCount: sortedGroupKeys.length,
                   itemBuilder: (context, groupIndex) {
-                    final groupName = grouped.keys.elementAt(groupIndex);
+                    final groupName = sortedGroupKeys[groupIndex];
                     final groupItems = grouped[groupName]!;
 
                     return Column(

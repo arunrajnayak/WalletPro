@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/utils/date_formatter.dart';
 import '../../core/utils/account_sorter.dart';
+import '../../data/datasources/remote/api_client.dart';
 import 'category_picker.dart';
 
 class SuggestionCard extends StatefulWidget {
@@ -46,6 +47,8 @@ class _SuggestionCardState extends State<SuggestionCard> {
   String? _selectedTransferToAccountName;
   bool _showRawText = false;
   bool _isProcessing = false;
+  final ApiClient _api = ApiClient();
+  List<Map<String, dynamic>> _recentCategories = [];
 
   @override
   void initState() {
@@ -93,6 +96,30 @@ class _SuggestionCardState extends State<SuggestionCard> {
         }
       }
 
+      if (_selectedAccountId == null) {
+        final rawText = (widget.suggestion['rawText'] ?? '').toString().toLowerCase();
+        final txMode = (widget.suggestion['transactionMode'] ?? '').toString().toLowerCase();
+        final isFastag = txMode == 'fastag' || rawText.contains('fastag') || (last4 != null && RegExp(r'^\d{4}$').hasMatch(last4) && (rawText.contains('toll') || rawText.contains('plaza') || rawText.contains('mall')));
+        final isFlipkart = rawText.contains('flipkart');
+        final isAmazon = rawText.contains('amazon pay') || rawText.contains('amazon');
+
+        final match = widget.accounts.firstWhere(
+          (acc) {
+            if (acc is! Map) return false;
+            final name = (acc['name'] ?? '').toString().toLowerCase();
+            if (isFastag && name.contains('fastag')) return true;
+            if (isFlipkart && name.contains('flipkart')) return true;
+            if (isAmazon && name.contains('amazon')) return true;
+            return false;
+          },
+          orElse: () => null,
+        );
+        if (match != null) {
+          _selectedAccountId = match['walletAccountId'] ?? match['id'];
+          _selectedAccountName = match['name'];
+        }
+      }
+
       if (_selectedAccountId != null && _selectedAccountName == null) {
         final match = widget.accounts.firstWhere(
           (acc) => (acc['walletAccountId'] == _selectedAccountId || acc['id'] == _selectedAccountId),
@@ -120,6 +147,97 @@ class _SuggestionCardState extends State<SuggestionCard> {
     } else {
       apply();
     }
+    _loadRecentCategoriesForAccount(_selectedAccountId);
+  }
+
+  Future<void> _loadRecentCategoriesForAccount(String? accountId) async {
+    if (accountId == null || accountId.isEmpty) {
+      if (mounted) setState(() => _recentCategories = []);
+      return;
+    }
+    try {
+      final list = await _api.getRecentCategoriesForAccount(accountId);
+      if (mounted && _selectedAccountId == accountId) {
+        setState(() {
+          _recentCategories = list;
+        });
+      }
+    } catch (_) {}
+  }
+
+  List<Map<String, dynamic>> _resolveQuickCategories() {
+    if (_recentCategories.isNotEmpty) {
+      return _recentCategories;
+    }
+
+    final rawText = (widget.suggestion['rawText'] ?? '').toString().toLowerCase();
+    final counterParty = (widget.suggestion['counterParty'] ?? '').toString().toLowerCase();
+    final categories = widget.categories;
+
+    final isFlipkart = counterParty.contains('flipkart') || rawText.contains('flipkart');
+    final isAmazon = counterParty.contains('amazon') || rawText.contains('amazon');
+    final isFood = counterParty.contains('swiggy') || counterParty.contains('zomato') || rawText.contains('swiggy') || rawText.contains('zomato');
+    final isFastag = counterParty.contains('fastag') || rawText.contains('fastag') || (widget.suggestion['transactionMode'] == 'fastag');
+
+    final matches = <Map<String, dynamic>>[];
+
+    int getUsage(dynamic c) {
+      if (c is! Map) return 0;
+      final u = c['usageCount'];
+      if (u is int) return u;
+      return int.tryParse(u?.toString() ?? '') ?? 0;
+    }
+
+    if (isFlipkart || isAmazon) {
+      for (final cat in categories) {
+        if (cat is! Map) continue;
+        final name = (cat['name'] ?? '').toString().toLowerCase();
+        final group = (cat['groupName'] ?? '').toString().toLowerCase();
+        if (name.contains('shopping') || group.contains('shopping') || name.contains('grocer') || name.contains('electronic') || name.contains('gift') || name.contains('voucher')) {
+          final id = cat['walletCategoryId'] ?? cat['id'];
+          if (id != null) matches.add({'id': id, 'name': cat['name']});
+        }
+      }
+    } else if (isFood) {
+      for (final cat in categories) {
+        if (cat is! Map) continue;
+        final name = (cat['name'] ?? '').toString().toLowerCase();
+        final group = (cat['groupName'] ?? '').toString().toLowerCase();
+        if (name.contains('food') || group.contains('food') || name.contains('restaurant') || name.contains('dining') || name.contains('drink')) {
+          final id = cat['walletCategoryId'] ?? cat['id'];
+          if (id != null) matches.add({'id': id, 'name': cat['name']});
+        }
+      }
+    } else if (isFastag) {
+      for (final cat in categories) {
+        if (cat is! Map) continue;
+        final name = (cat['name'] ?? '').toString().toLowerCase();
+        final group = (cat['groupName'] ?? '').toString().toLowerCase();
+        if (name.contains('toll') || name.contains('fastag') || name.contains('transport') || group.contains('transport') || name.contains('vehicle') || name.contains('parking')) {
+          final id = cat['walletCategoryId'] ?? cat['id'];
+          if (id != null) matches.add({'id': id, 'name': cat['name']});
+        }
+      }
+    }
+
+    if (matches.isNotEmpty) {
+      return matches.take(5).toList();
+    }
+
+    final sortedByUsage = List<dynamic>.from(categories)
+      ..sort((a, b) => getUsage(b).compareTo(getUsage(a)));
+
+    final popular = <Map<String, dynamic>>[];
+    for (final cat in sortedByUsage) {
+      if (cat is! Map) continue;
+      final id = cat['walletCategoryId'] ?? cat['id'];
+      final name = cat['name']?.toString();
+      if (id != null && name != null && name.isNotEmpty) {
+        popular.add({'id': id, 'name': name});
+        if (popular.length >= 5) break;
+      }
+    }
+    return popular;
   }
 
   void _openCategoryPicker() async {
@@ -127,12 +245,17 @@ class _SuggestionCardState extends State<SuggestionCard> {
       context,
       categories: widget.categories,
       selectedCategoryId: _selectedCategoryId,
+      recentCategories: _recentCategories,
     );
+    if (!mounted) return;
     if (cat != null) {
       setState(() {
         _selectedCategoryId = cat['walletCategoryId'];
         _selectedCategoryName = cat['name'];
       });
+      if (_selectedAccountId != null && _selectedCategoryId != null && _selectedCategoryName != null) {
+        _api.recordCategoryUsedForAccount(_selectedAccountId!, _selectedCategoryId!, _selectedCategoryName!);
+      }
     }
   }
 
@@ -1081,6 +1204,111 @@ class _SuggestionCardState extends State<SuggestionCard> {
                       ],
                     ),
                   ),
+                ),
+
+                // Quick-select chips (account recent, merchant-based, or top popular)
+                Builder(
+                  builder: (context) {
+                    final quickCategories = _resolveQuickCategories();
+                    if (quickCategories.isEmpty) return const SizedBox.shrink();
+
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8, bottom: 2),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.flash_on_rounded, size: 12, color: theme.colorScheme.primary),
+                              const SizedBox(width: 4),
+                              Text(
+                                _recentCategories.isNotEmpty && _selectedAccountName != null
+                                    ? 'Frequent for ${_selectedAccountName}:'
+                                    : 'Quick categories:',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 5),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            physics: const BouncingScrollPhysics(),
+                            child: Row(
+                              children: quickCategories.take(5).map((cat) {
+                                final isSel = cat['id'] == _selectedCategoryId;
+                                return Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: InkWell(
+                                    onTap: () {
+                                      HapticFeedback.selectionClick();
+                                      setState(() {
+                                        _selectedCategoryId = cat['id'];
+                                        _selectedCategoryName = cat['name'];
+                                      });
+                                      if (_selectedAccountId != null) {
+                                        _api.recordCategoryUsedForAccount(
+                                          _selectedAccountId!,
+                                          cat['id'],
+                                          cat['name'],
+                                        );
+                                      }
+                                    },
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: AnimatedContainer(
+                                      duration: const Duration(milliseconds: 150),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                      decoration: BoxDecoration(
+                                        color: isSel
+                                            ? const Color(0xFF8B5CF6)
+                                            : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9)),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: isSel
+                                              ? const Color(0xFFA78BFA)
+                                              : (isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
+                                          width: isSel ? 1.4 : 0.8,
+                                        ),
+                                        boxShadow: isSel
+                                            ? [
+                                                BoxShadow(
+                                                  color: const Color(0xFF8B5CF6).withOpacity(0.3),
+                                                  blurRadius: 6,
+                                                  offset: const Offset(0, 2),
+                                                ),
+                                              ]
+                                            : null,
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          if (isSel) ...[
+                                            const Icon(Icons.check_rounded, size: 12, color: Colors.white),
+                                            const SizedBox(width: 4),
+                                          ],
+                                          Text(
+                                            cat['name'] ?? 'Category',
+                                            style: TextStyle(
+                                              fontSize: 11.5,
+                                              fontWeight: isSel ? FontWeight.bold : FontWeight.w600,
+                                              color: isSel ? Colors.white : (isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569)),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
 
                 const SizedBox(height: 12),

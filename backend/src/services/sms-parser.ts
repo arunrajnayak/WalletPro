@@ -10,7 +10,7 @@ export interface ParsedTransaction {
   rawText: string;
   confidence: number;
   bank?: string;
-  transactionMode?: 'upi' | 'neft' | 'imps' | 'card' | 'netbanking' | 'atm' | 'unknown';
+  transactionMode?: 'upi' | 'neft' | 'imps' | 'card' | 'netbanking' | 'atm' | 'fastag' | 'unknown';
   isOtp?: boolean;
 }
 
@@ -20,6 +20,16 @@ export class SmsParser {
    */
   private identifyBank(senderHeader?: string, text?: string): string | undefined {
     const combined = `${senderHeader || ''} ${text || ''}`.toUpperCase();
+    if (combined.includes('FASTAG')) {
+      if (combined.includes('ICICI')) return 'ICICI Bank';
+      if (combined.includes('HDFC')) return 'HDFC Bank';
+      if (combined.includes('SBI') || combined.includes('STATE BANK')) return 'State Bank of India';
+      if (combined.includes('PAYTM')) return 'Paytm';
+      if (combined.includes('AXIS')) return 'Axis Bank';
+      if (combined.includes('IDFC')) return 'IDFC First Bank';
+      if (combined.includes('KOTAK')) return 'Kotak Mahindra Bank';
+      return 'FASTag';
+    }
     if (combined.includes('HDFC')) return 'HDFC Bank';
     if (combined.includes('ICICI')) return 'ICICI Bank';
     if (combined.includes('SBI') || combined.includes('STATE BANK')) return 'State Bank of India';
@@ -48,11 +58,14 @@ export class SmsParser {
       return null;
     }
 
+    const isFastag = /\b(?:fastag|toll|parking|plaza)\b/i.test(text);
+
     // 1. Transaction Type (Debit vs Credit)
     const isCredit = /\b(credited|deposited|added|received|refunded|inward)\b/i.test(text);
     const isDebit =
       /\b(debited|spent|deducted|paid|payment(?:\s+of)?|withdrawn|used(?:\s+for)?|using|sent|charged|txn\s+of|transaction\s+of)\b/i.test(text) ||
-      isOtpWithTxn;
+      isOtpWithTxn ||
+      isFastag;
 
     if (!isCredit && !isDebit) {
       return null;
@@ -68,11 +81,17 @@ export class SmsParser {
     const amount = parseFloat(rawAmountStr);
     if (isNaN(amount) || amount <= 0) return null;
 
-    // 3. Account / Card Last 4 Digits
+    // 3. Account / Card Last 4 Digits & FASTag Vehicle Number
     let accountLast4: string | undefined;
     const accountMatch = text.match(/(?:a\/c|acct|card|account|card\s*ending)\s*(?:no\.?)?[\s:\.\-]*[*xX]*([0-9]{3,5})/i);
     if (accountMatch) {
       accountLast4 = accountMatch[1];
+    } else if (isFastag || /\b[A-Z]{2}\s?[0-9]{1,2}\s?[A-Z]{1,3}\s?[0-9]{4}\b/i.test(text)) {
+      // Indian vehicle registration number (e.g. "KA20ME4025", "MH 12 AB 1234")
+      const vehicleMatch = text.match(/\b[A-Z]{2}\s?[0-9]{1,2}\s?[A-Z]{1,3}\s?([0-9]{4})\b/i);
+      if (vehicleMatch) {
+        accountLast4 = vehicleMatch[1];
+      }
     }
 
     // 4. UPI Ref / Reference / UTR Number
@@ -92,7 +111,8 @@ export class SmsParser {
     // 6. Transaction Mode
     let transactionMode: ParsedTransaction['transactionMode'] = 'unknown';
     const lower = text.toLowerCase();
-    if (lower.includes('upi') || lower.includes('@')) transactionMode = 'upi';
+    if (isFastag) transactionMode = 'fastag';
+    else if (lower.includes('upi') || lower.includes('@')) transactionMode = 'upi';
     else if (lower.includes('gift card')) transactionMode = 'card';
     else if (lower.includes('card') || lower.includes('pos')) transactionMode = 'card';
     else if (lower.includes('neft')) transactionMode = 'neft';
@@ -102,16 +122,17 @@ export class SmsParser {
 
     // 7. CounterParty / Merchant extraction
     let counterParty: string | undefined;
-    // Matches patterns like "to VPA xyz@bank", "at AMAZON INDIA", "to Swiggy", "Info: UPI/123/Swiggy"
+    // Matches patterns like "to VPA xyz@bank", "at AMAZON INDIA", "to Swiggy.", "paid at Orion Uptown Mall for KA20ME4025"
     const merchantMatch =
-      text.match(/(?:to\s+vpa|to|at|info:[\w\/]+?\/)\s+([A-Za-z0-9\s\.\&\*\-]+?)(?:\s+(?:on|via|UPI|Ref|avl|bal|using|date|limit|\.|\,)|$)/i);
+      text.match(/(?:to\s+vpa|to|at|info:[\w\/]+?\/)\s+([A-Za-z0-9\s\&\*\-]+?)(?:\s+(?:for|on|via|with|using|UPI|Ref|avl|bal|date|limit)|[\.,]|$)/i);
     if (merchantMatch) {
       counterParty = merchantMatch[1].trim().replace(/^[\s\.\-\*]+|[\s\.\-\*]+$/g, '');
       if (counterParty.length > 50) counterParty = counterParty.substring(0, 50).trim();
     }
 
     if (!counterParty || counterParty.toLowerCase() === 'vpa') {
-      if (/flipkart/i.test(text)) counterParty = 'Flipkart';
+      if (isFastag) counterParty = 'FASTag Toll';
+      else if (/flipkart/i.test(text)) counterParty = 'Flipkart';
       else if (/amazon/i.test(text)) counterParty = 'Amazon';
       else if (/swiggy/i.test(text)) counterParty = 'Swiggy';
       else if (/zomato/i.test(text)) counterParty = 'Zomato';
