@@ -548,6 +548,7 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
     final isExpense = _transactionType == 'expense';
     final isIncome = _transactionType == 'income';
     final isTransfer = _transactionType == 'transfer';
+    final quickCategories = _resolveQuickCategories();
 
     final amountNum = double.tryParse(widget.suggestion['amount']?.toString() ?? '0') ?? 0.0;
     final counterParty = (widget.suggestion['counterParty'] ?? 'Unknown Merchant').toString();
@@ -847,7 +848,6 @@ class ReviewDeckCardControllerState extends State<ReviewDeckCard> {
                     ),
 
                     // Quick-select chips (account recent, merchant-based, or top popular)
-                    final quickCategories = _resolveQuickCategories();
                     if (quickCategories.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Padding(
