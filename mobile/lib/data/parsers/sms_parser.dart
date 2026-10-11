@@ -2,11 +2,18 @@ import 'package:flutter/foundation.dart';
 
 class SmsParser {
   static final _amountRegex = RegExp(r'(?:Rs\.?|INR|₹)\s*([\d,]+\.?\d*)', caseSensitive: false);
-  static final _accountRegex = RegExp(r'(?:A\/c|Acct|Card|a\/c|account)\s*(?:no\.?)?\s*[*xX]*([0-9]{3,5})', caseSensitive: false);
-  static final _typeRegex = RegExp(r'\b(debited|credited|spent|withdrawn|transferred|deposited|sent|received|used|using|charged|paid|payment|txn|transaction)\b', caseSensitive: false);
-  static final _upiRegex = RegExp(r'(?:UPI\s*(?:Ref|ref)(?:\s*(?:No|no)\.?)?|Ref\s*(?:No|no)\.?|UTR)[\s:\.\-]*([0-9]{6,16})', caseSensitive: false);
+  static final _accountRegex = RegExp(r'(?:A\/c|Acct|Card|a\/c|account|ending\s*in)\s*(?:no\.?)?\s*[*xX]*([0-9]{3,5})', caseSensitive: false);
+  static final _typeRegex = RegExp(r'\b(debited|credited|spent|withdrawn|transferred|deposited|sent|received|used|using|charged|paid|payment|txn|transaction|order\s+placed|order\s+confirmed|placed|refund(?:ed|\s+processed|\s+initiated|\s+of)?|cashback(?:\s+received|\s+credited)?|added|recharge\s+successful|bill\s+payment)\b', caseSensitive: false);
+  static final _upiRegex = RegExp(r'(?:UPI\s*(?:Ref|ref)(?:\s*(?:No|no)\.?)?|Ref(?:\s*(?:No|no)\.?)?|UTR)[\s:\.\-]*([0-9]{6,16})', caseSensitive: false);
+  static final _amazonOrderRegex = RegExp(r'(?:order\s*(?:#|no\.?|id)?\s*|#\s*)([0-9]{3}-[0-9]{7}-[0-9]{7})', caseSensitive: false);
   static final _balanceRegex = RegExp(r'(?:Avl|Avail(?:able)?|Updated|Total)?\s*Bal(?:ance)?\s*[:\s]*(?:INR|Rs\.?)?\s*([\d,]+\.?\d*)', caseSensitive: false);
-  static final _merchantRegex = RegExp(r'(?:to\s+vpa|to|at)\s+([A-Za-z0-9\s\&\*\-]+?)(?:\s+(?:for|on|via|with|using|UPI|Ref|avl|bal|date|limit)|[\.,]|$)', caseSensitive: false);
+  static final _merchantRegex = RegExp(r'(?:to\s+vpa|to|at|from)\s+([A-Za-z0-9\s\&\*\-]+?)(?:\s+(?:for|on|via|with|using|UPI|Ref|avl|bal|date|limit)|[\.,]|$)', caseSensitive: false);
+  static final _orderItemRegex = RegExp(r'(?:order\s+placed(?::|\s+for)?|order\s+of)\s*(?:Rs\.?|INR|₹)?\s*[\d,]+\.?\d*\s+(?:for|of)\s+([^.\n,]+)', caseSensitive: false);
+
+  // Strict Anti-Spam / Promotional & Logistics filters
+  static final _spamPromoRegex = RegExp(r'\b(deal|deals|discount|flat\s*(?:rs\.?|inr|₹)|win\b|chance\s+to\s+win|up\s+to\s*(?:rs\.?|inr|₹)|offer|offers|coupon|coupons|price\s+drop|save\s*(?:rs\.?|inr|₹)|cashback\s+on\b|quiz|jackpot|lightning\s+deal)\b', caseSensitive: false);
+  static final _cartWishlistRegex = RegExp(r'\b(items?\s+in\s+your\s+cart|complete\s+your\s+(?:order|purchase)|continue\s+shopping|wishlist|buy\s+again|recommended\s+for\s+you)\b', caseSensitive: false);
+  static final _logisticsRegex = RegExp(r'\b(delivered\b|dispatched\b|shipped\b|out\s+for\s+delivery|arriving\s+(?:today|tomorrow|by)|track\s+your\s+package|handed\s+to\s+resident|delivery\s+attempted|package\s+arrived|rate\s+your|review\s+your|how\s+was|share\s+your\s+feedback)\b', caseSensitive: false);
 
   // Hardcoded start date: 1st September 2026 UTC
   static final DateTime hardcodedStartDate = DateTime.utc(2026, 9, 1);
@@ -17,6 +24,11 @@ class SmsParser {
 
       // Ignore SMS received prior to 1st September 2026
       if (date.isBefore(hardcodedStartDate)) {
+        return null;
+      }
+
+      // Filter out promotional marketing, cart reminders, and shipping/delivery alerts
+      if (_spamPromoRegex.hasMatch(smsText) || _cartWishlistRegex.hasMatch(smsText) || _logisticsRegex.hasMatch(smsText)) {
         return null;
       }
 
@@ -41,7 +53,10 @@ class SmsParser {
       final amount = double.tryParse(rawAmountStr ?? '') ?? 0.0;
       if (amount <= 0) return null;
 
-      final isCredit = typeMatch != null && RegExp(r'\b(credited|deposited|added|received)\b', caseSensitive: false).hasMatch(typeMatch.group(1)!);
+      final matchedType = typeMatch?.group(1)?.toLowerCase() ?? '';
+      final isCredit = RegExp(r'\b(credited|deposited|added|received|refunded|inward)\b', caseSensitive: false).hasMatch(matchedType) ||
+          matchedType.startsWith('cashback') ||
+          matchedType.startsWith('refund');
       final transactionType = isCredit ? 'income' : 'expense';
 
       final accountMatch = _accountRegex.firstMatch(smsText);
@@ -52,17 +67,54 @@ class SmsParser {
       }
 
       final upiMatch = _upiRegex.firstMatch(smsText);
+      final amazonOrderMatch = _amazonOrderRegex.firstMatch(smsText);
+      final referenceNumber = upiMatch?.group(1) ?? amazonOrderMatch?.group(1);
+
       final balanceMatch = _balanceRegex.firstMatch(smsText);
       final merchantMatch = _merchantRegex.firstMatch(smsText);
 
+      final lowerText = smsText.toLowerCase();
+      final isAmazonText = lowerText.contains('amazon');
+      String? note;
+
       String? counterParty = merchantMatch?.group(1)?.trim();
-      if (counterParty == null || counterParty.isEmpty || counterParty.toLowerCase() == 'vpa') {
+
+      // Amazon-specific merchant, note, and counterparty heuristics
+      if (isAmazonText) {
+        final orderItemMatch = _orderItemRegex.firstMatch(smsText);
+        if (orderItemMatch != null) {
+          final rawItem = orderItemMatch.group(1)?.trim() ?? '';
+          final cleanItem = rawItem.replaceAll(RegExp(r'\s+(?:has\s+been\s+placed|is\s+confirmed|placed|confirmed)$', caseSensitive: false), '').trim();
+          if (cleanItem.isNotEmpty) {
+            note = 'Order: $cleanItem';
+          }
+        }
+
+        if (lowerText.contains('order placed') || lowerText.contains('order confirmed') || lowerText.contains('your order of')) {
+          counterParty = 'Amazon';
+        } else if (lowerText.contains('cashback')) {
+          counterParty = 'Amazon Pay Cashback';
+        } else if (lowerText.contains('refund')) {
+          counterParty = 'Amazon Refund';
+        } else if (lowerText.contains('bill payment')) {
+          final billerMatch = RegExp(r'(?:for|to)\s+([A-Za-z0-9\s\-]+?)(?:\s+(?:bill|successful)|$)', caseSensitive: false).firstMatch(smsText);
+          counterParty = billerMatch?.group(1)?.trim() ?? 'Amazon Pay Bill Payment';
+          note = 'Bill Payment: $counterParty';
+        } else if (lowerText.contains('recharge')) {
+          final mobileMatch = RegExp(r'(?:for|mobile)\s*([0-9]{10})', caseSensitive: false).firstMatch(smsText);
+          final target = mobileMatch?.group(1);
+          counterParty = 'Amazon Pay Recharge';
+          note = target != null ? 'Recharge: $target' : 'Mobile Recharge';
+        }
+      }
+
+      if (counterParty == null || counterParty.isEmpty || counterParty.toLowerCase() == 'vpa' || counterParty.toLowerCase() == 'amazon pay upi') {
         if (isFastag) {
           counterParty = 'FASTag Toll';
+        } else if (isAmazonText) {
+          counterParty = 'Amazon';
         } else if (RegExp(r'flipkart', caseSensitive: false).hasMatch(smsText)) {
           counterParty = 'Flipkart';
-        } else if (RegExp(r'amazon', caseSensitive: false).hasMatch(smsText)) {
-          counterParty = 'Amazon';
         } else if (RegExp(r'swiggy', caseSensitive: false).hasMatch(smsText)) {
           counterParty = 'Swiggy';
         } else if (RegExp(r'zomato', caseSensitive: false).hasMatch(smsText)) {
@@ -99,17 +151,29 @@ class SmsParser {
         }
       }
 
+      String? transactionMode;
+      if (isFastag) {
+        transactionMode = 'fastag';
+      } else if (lowerText.contains('amazon pay balance') || lowerText.contains('amazon pay wallet')) {
+        transactionMode = 'wallet';
+      } else if (lowerText.contains('gift card') || lowerText.contains('card')) {
+        transactionMode = 'card';
+      } else if (lowerText.contains('upi') || lowerText.contains('@')) {
+        transactionMode = 'upi';
+      }
+
       return {
         'amount': amount,
         'transactionType': transactionType,
         'accountLast4': accountLast4,
-        'referenceNumber': upiMatch?.group(1),
+        'referenceNumber': referenceNumber,
         'counterParty': counterParty,
+        'note': note,
         'balance': double.tryParse(balanceMatch?.group(1)?.replaceAll(',', '') ?? ''),
         'transactionDate': effectiveDate.toIso8601String(),
         'rawText': smsText,
         'isOtp': isOtpWithTxn,
-        'transactionMode': isFastag ? 'fastag' : (smsText.toLowerCase().contains('gift card') ? 'card' : null),
+        'transactionMode': transactionMode,
       };
     } catch (e) {
       debugPrint('SMS parsing error: $e');

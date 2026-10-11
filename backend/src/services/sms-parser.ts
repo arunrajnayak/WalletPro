@@ -3,6 +3,7 @@ export interface ParsedTransaction {
   transactionType: 'expense' | 'income';
   accountLast4?: string;
   counterParty?: string;
+  note?: string;
   referenceNumber?: string;
   balance?: number;
   transactionDate: Date;
@@ -10,7 +11,7 @@ export interface ParsedTransaction {
   rawText: string;
   confidence: number;
   bank?: string;
-  transactionMode?: 'upi' | 'neft' | 'imps' | 'card' | 'netbanking' | 'atm' | 'fastag' | 'unknown';
+  transactionMode?: 'upi' | 'neft' | 'imps' | 'card' | 'netbanking' | 'atm' | 'fastag' | 'wallet' | 'unknown';
   isOtp?: boolean;
 }
 
@@ -30,6 +31,7 @@ export class SmsParser {
       if (combined.includes('KOTAK')) return 'Kotak Mahindra Bank';
       return 'FASTag';
     }
+    if (combined.includes('AMAZON') && combined.includes('ICICI')) return 'ICICI Bank';
     if (combined.includes('HDFC')) return 'HDFC Bank';
     if (combined.includes('ICICI')) return 'ICICI Bank';
     if (combined.includes('SBI') || combined.includes('STATE BANK')) return 'State Bank of India';
@@ -45,10 +47,19 @@ export class SmsParser {
   }
 
   /**
-   * Parses an SMS text to extract structured transaction details.
+   * Parses an SMS or notification text to extract structured transaction details.
    */
   public parse(text: string, date: Date = new Date(), senderHeader?: string): ParsedTransaction | null {
     if (!text || typeof text !== 'string') return null;
+
+    // 0. Discard marketing/promotions, cart/wishlist prompts, and delivery tracking updates
+    const isPromoSpam = /\b(?:deal|deals|discount|flat\s*(?:rs\.?|inr|₹)|win\b|chance\s+to\s+win|up\s+to\s*(?:rs\.?|inr|₹)|offer|offers|coupon|coupons|price\s+drop|save\s*(?:rs\.?|inr|₹)|cashback\s+on\b|quiz|jackpot|lightning\s+deal)\b/i.test(text);
+    const isCartPrompt = /\b(?:items?\s+in\s+your\s+cart|complete\s+your\s+(?:order|purchase)|continue\s+shopping|wishlist|buy\s+again|recommended\s+for\s+you)\b/i.test(text);
+    const isLogisticsUpdate = /\b(?:delivered\b|dispatched\b|shipped\b|out\s+for\s+delivery|arriving\s+(?:today|tomorrow|by)|track\s+your\s+package|handed\s+to\s+resident|delivery\s+attempted|package\s+arrived|rate\s+your|review\s+your|how\s+was|share\s+your\s+feedback)\b/i.test(text);
+
+    if (isPromoSpam || isCartPrompt || isLogisticsUpdate) {
+      return null;
+    }
 
     // Discard OTPs, verification codes, or promotional spam EXCEPT when the OTP is for a transaction
     const isOtp = /\b(?:otp|one\s*time\s*password|verification\s*code|secret\s*code|pin)\b/i.test(text);
@@ -61,9 +72,10 @@ export class SmsParser {
     const isFastag = /\b(?:fastag|toll|parking|plaza)\b/i.test(text);
 
     // 1. Transaction Type (Debit vs Credit)
-    const isCredit = /\b(credited|deposited|added|received|refunded|inward)\b/i.test(text);
+    const isCredit =
+      /\b(credited|deposited|added|received|refunded|inward|cashback(?:\s+received|\s+credited)?|refund(?:\s+processed|\s+initiated|\s+of)?)\b/i.test(text);
     const isDebit =
-      /\b(debited|spent|deducted|paid|payment(?:\s+of)?|withdrawn|used(?:\s+for)?|using|sent|charged|txn\s+of|transaction\s+of)\b/i.test(text) ||
+      /\b(debited|spent|deducted|paid|payment(?:\s+of)?|withdrawn|used(?:\s+for)?|using|sent|charged|txn\s+of|transaction\s+of|order\s+placed|order\s+confirmed|placed|bill\s+payment|recharge\s+successful)\b/i.test(text) ||
       isOtpWithTxn ||
       isFastag;
 
@@ -83,7 +95,7 @@ export class SmsParser {
 
     // 3. Account / Card Last 4 Digits & FASTag Vehicle Number
     let accountLast4: string | undefined;
-    const accountMatch = text.match(/(?:a\/c|acct|card|account|card\s*ending)\s*(?:no\.?)?[\s:\.\-]*[*xX]*([0-9]{3,5})/i);
+    const accountMatch = text.match(/(?:a\/c|acct|card|account|card\s*ending|ending\s*in)\s*(?:no\.?)?[\s:\.\-]*[*xX]*([0-9]{3,5})/i);
     if (accountMatch) {
       accountLast4 = accountMatch[1];
     } else if (isFastag || /\b[A-Z]{2}\s?[0-9]{1,2}\s?[A-Z]{1,3}\s?[0-9]{4}\b/i.test(text)) {
@@ -94,11 +106,14 @@ export class SmsParser {
       }
     }
 
-    // 4. UPI Ref / Reference / UTR Number
+    // 4. UPI Ref / Reference / UTR Number & Amazon Order ID
     let referenceNumber: string | undefined;
-    const refMatch = text.match(/(?:upi\s*(?:ref|reference)?(?:\s*no\.?)?|ref\s*no\.?|utr|rrn|txn\s*id)[\s:\.\-]*([0-9a-zA-Z]{6,16})/i);
+    const refMatch = text.match(/(?:upi\s*(?:ref|reference)?(?:\s*no\.?)?|ref(?:\s*no\.?)?|utr|rrn|txn\s*id)[\s:\.\-]*([0-9a-zA-Z]{6,16})/i);
+    const amazonOrderMatch = text.match(/(?:order\s*(?:#|no\.?|id)?\s*|#\s*)([0-9]{3}-[0-9]{7}-[0-9]{7})/i);
     if (refMatch) {
       referenceNumber = refMatch[1];
+    } else if (amazonOrderMatch) {
+      referenceNumber = amazonOrderMatch[1];
     }
 
     // 5. Available Balance
@@ -112,6 +127,7 @@ export class SmsParser {
     let transactionMode: ParsedTransaction['transactionMode'] = 'unknown';
     const lower = text.toLowerCase();
     if (isFastag) transactionMode = 'fastag';
+    else if (lower.includes('amazon pay balance') || lower.includes('amazon pay wallet')) transactionMode = 'wallet';
     else if (lower.includes('upi') || lower.includes('@')) transactionMode = 'upi';
     else if (lower.includes('gift card')) transactionMode = 'card';
     else if (lower.includes('card') || lower.includes('pos')) transactionMode = 'card';
@@ -120,20 +136,51 @@ export class SmsParser {
     else if (lower.includes('atm') || lower.includes('cash withdrawal')) transactionMode = 'atm';
     else if (lower.includes('netbanking')) transactionMode = 'netbanking';
 
-    // 7. CounterParty / Merchant extraction
+    // 7. CounterParty / Merchant & Note extraction
     let counterParty: string | undefined;
-    // Matches patterns like "to VPA xyz@bank", "at AMAZON INDIA", "to Swiggy.", "paid at Orion Uptown Mall for KA20ME4025"
+    let note: string | undefined;
+
     const merchantMatch =
-      text.match(/(?:to\s+vpa|to|at|info:[\w\/]+?\/)\s+([A-Za-z0-9\s\&\*\-]+?)(?:\s+(?:for|on|via|with|using|UPI|Ref|avl|bal|date|limit)|[\.,]|$)/i);
+      text.match(/(?:to\s+vpa|to|at|from|info:[\w\/]+?\/)\s+([A-Za-z0-9\s\&\*\-]+?)(?:\s+(?:for|on|via|with|using|UPI|Ref|avl|bal|date|limit)|[\.,]|$)/i);
     if (merchantMatch) {
       counterParty = merchantMatch[1].trim().replace(/^[\s\.\-\*]+|[\s\.\-\*]+$/g, '');
       if (counterParty.length > 50) counterParty = counterParty.substring(0, 50).trim();
     }
 
-    if (!counterParty || counterParty.toLowerCase() === 'vpa') {
+    const isAmazonText = lower.includes('amazon');
+
+    if (isAmazonText) {
+      const orderItemMatch = text.match(/(?:order\s+placed(?::|\s+for)?|order\s+of)\s*(?:Rs\.?|INR|₹)?\s*[0-9,]+\.?\d*\s+(?:for|of)\s+([^.\n,]+)/i);
+      if (orderItemMatch && orderItemMatch[1].trim()) {
+        const rawItem = orderItemMatch[1].trim();
+        const cleanItem = rawItem.replace(/\s+(?:has\s+been\s+placed|is\s+confirmed|placed|confirmed)$/i, '').trim();
+        if (cleanItem) {
+          note = `Order: ${cleanItem}`;
+        }
+      }
+
+      if (lower.includes('order placed') || lower.includes('order confirmed') || lower.includes('your order of')) {
+        counterParty = 'Amazon';
+      } else if (lower.includes('cashback')) {
+        counterParty = 'Amazon Pay Cashback';
+      } else if (lower.includes('refund')) {
+        counterParty = 'Amazon Refund';
+      } else if (lower.includes('bill payment')) {
+        const billerMatch = text.match(/(?:for|to)\s+([A-Za-z0-9\s\-]+?)(?:\s+(?:bill|successful)|$)/i);
+        counterParty = billerMatch ? billerMatch[1].trim() : 'Amazon Pay Bill Payment';
+        note = `Bill Payment: ${counterParty}`;
+      } else if (lower.includes('recharge')) {
+        const mobileMatch = text.match(/(?:for|mobile)\s*([0-9]{10})/i);
+        const target = mobileMatch ? mobileMatch[1] : undefined;
+        counterParty = 'Amazon Pay Recharge';
+        note = target ? `Recharge: ${target}` : 'Mobile Recharge';
+      }
+    }
+
+    if (!counterParty || counterParty.toLowerCase() === 'vpa' || counterParty.toLowerCase() === 'amazon pay upi') {
       if (isFastag) counterParty = 'FASTag Toll';
+      else if (isAmazonText) counterParty = 'Amazon';
       else if (/flipkart/i.test(text)) counterParty = 'Flipkart';
-      else if (/amazon/i.test(text)) counterParty = 'Amazon';
       else if (/swiggy/i.test(text)) counterParty = 'Swiggy';
       else if (/zomato/i.test(text)) counterParty = 'Zomato';
       else if (/uber/i.test(text)) counterParty = 'Uber';
@@ -171,6 +218,7 @@ export class SmsParser {
       transactionType,
       accountLast4,
       counterParty,
+      note,
       referenceNumber,
       balance,
       transactionDate: parsedDate,

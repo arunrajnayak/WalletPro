@@ -61,6 +61,14 @@ class WalletNotificationListenerService : NotificationListenerService() {
             return false
         }
 
+        if (lower.contains("amazon")) {
+            // Exclude media streaming, books, music, and Alexa
+            if (lower.contains("mp3") || lower.contains("avod") || lower.contains("kindle") || lower.contains("dee")) {
+                return false
+            }
+            return true
+        }
+
         return lower.contains("paisa") || // Google Pay
                 lower.contains("phonepe") ||
                 lower.contains("paytm") ||

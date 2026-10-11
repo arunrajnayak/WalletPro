@@ -50,18 +50,19 @@ async function cleanupPendingDuplicates(userId: string, force = false): Promise<
       const raw = (item.rawText || '').replace(/\s+/g, ' ').trim().toLowerCase();
       const sourceId = (item.sourceId || '').trim();
       const d = item.transactionDate;
-      const dateDay = `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}-${d.getUTCDate()}`;
 
       let sig = '';
       if (sourceId) {
         sig = `src:${sourceId}`;
       } else if (ref) {
-        sig = `ref:${amountStr}:${ref}`;
+        sig = `ref:${amountStr}:${ref.toLowerCase()}`;
       } else if (raw.length > 10) {
-        sig = `raw:${amountStr}:${raw.slice(0, 60)}`;
+        // Group by 15-minute time bucket to only merge truly identical re-delivered messages
+        const timeBucket15m = Math.floor(d.getTime() / (15 * 60 * 1000));
+        sig = `raw:${amountStr}:${timeBucket15m}:${raw}`;
       } else {
-        const last4 = (item.accountLast4 || '').trim();
-        sig = `approx:${amountStr}:${dateDay}:${last4}`;
+        // Never merge distinct pending items without high-confidence match
+        sig = `unique:${item.id}`;
       }
 
       if (seenSignatures.has(sig)) {
@@ -322,20 +323,34 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       }
     }
 
-    // 2. Exact rawText check: identical SMS content for this user should not be duplicated
+    // 2. Exact rawText check: identical SMS content within 4 hours
     if (rawTextToSave.length > 10) {
-      const existingByRawText = await prisma.suggestion.findFirst({
+      const window4hStart = new Date(transactionDate.getTime() - 4 * 3600 * 1000);
+      const window4hEnd = new Date(transactionDate.getTime() + 4 * 3600 * 1000);
+      const existingByRawTextMatches = await prisma.suggestion.findMany({
         where: {
           userId,
           rawText: rawTextToSave,
           status: { in: ['pending', 'approved', 'synced'] },
+          transactionDate: { gte: window4hStart, lte: window4hEnd },
         },
+        select: { id: true, status: true, sourceId: true },
       });
-      if (existingByRawText) {
+
+      const incomingSourceId = parsed.sourceId ? String(parsed.sourceId) : undefined;
+      const trueRawMatch = existingByRawTextMatches.find((m) => {
+        // If both have distinct SMS source IDs, they are two separate physical SMS messages received by phone!
+        if (incomingSourceId && m.sourceId && incomingSourceId.startsWith('sms_') && m.sourceId.startsWith('sms_') && incomingSourceId !== m.sourceId) {
+          return false;
+        }
+        return true;
+      });
+
+      if (trueRawMatch) {
         return res.status(409).json({
-          message: 'Transaction with identical message text already exists',
-          suggestionId: existingByRawText.id,
-          status: existingByRawText.status,
+          message: 'Transaction with identical message text already exists within 4 hours',
+          suggestionId: trueRawMatch.id,
+          status: trueRawMatch.status,
         });
       }
     }
@@ -361,21 +376,6 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       });
     }
 
-    // 3. Multi-layer deduplication check (ref number, fuzzy date, amount, accountLast4, rawText)
-    const isDup = await dedupEngine.isDuplicate(
-      userId,
-      transactionDate,
-      amount,
-      parsed.referenceNumber,
-      parsed.accountLast4,
-      rawTextToSave,
-      parsed.sourceId ? String(parsed.sourceId) : undefined
-    );
-
-    if (isDup) {
-      return res.status(409).json({ message: 'Duplicate transaction detected', parsed });
-    }
-
     // Auto-match Wallet account (by last 4 digits or semantic match for FASTag, Flipkart, Amazon)
     let matchedAccountId: string | undefined;
     const activeAccounts = await prisma.walletAccount.findMany({
@@ -398,7 +398,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       const lowerText = rawTextToSave.toLowerCase();
       const isFastag = parsed.transactionMode === 'fastag' || /fastag/i.test(lowerText) || (parsed.accountLast4 && /^\d{4}$/.test(parsed.accountLast4) && /toll|plaza|mall/i.test(lowerText));
       const isFlipkart = parsed.bank === 'Flipkart' || /flipkart\s*(?:gift\s*card|gc)/i.test(lowerText);
-      const isAmazon = parsed.bank === 'Amazon Pay' || /amazon\s*pay/i.test(lowerText);
+      const isAmazon = parsed.bank === 'Amazon Pay' || /amazon\s*pay/i.test(lowerText) || /amazon/i.test(parsed.counterParty || '');
 
       if (isFastag) {
         const fastagAcc = activeAccounts.find((acc) => /fastag/i.test(acc.name));
@@ -410,6 +410,31 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
         const amazonAcc = activeAccounts.find((acc) => /amazon/i.test(acc.name));
         if (amazonAcc) matchedAccountId = amazonAcc.walletAccountId;
       }
+    }
+
+    // 3. Multi-layer deduplication check (ref number, fuzzy date, amount, accountLast4, rawText, counterParty)
+    const dupResult = await dedupEngine.findDuplicate(
+      userId,
+      transactionDate,
+      amount,
+      parsed.referenceNumber,
+      parsed.accountLast4,
+      rawTextToSave,
+      parsed.sourceId ? String(parsed.sourceId) : undefined,
+      parsed.counterParty
+    );
+
+    if (dupResult.isDuplicate) {
+      if (dupResult.matchedSuggestionId) {
+        await dedupEngine.enrichPendingSuggestion(dupResult.matchedSuggestionId, {
+          accountLast4: parsed.accountLast4,
+          matchedAccountId,
+          note: parsed.note || (parsed as any).note,
+          referenceNumber: parsed.referenceNumber,
+          counterParty: parsed.counterParty,
+        });
+      }
+      return res.status(409).json({ message: 'Duplicate transaction detected', parsed });
     }
 
     // Get AI Category suggestion
@@ -515,17 +540,30 @@ router.post('/bulk', authenticate, async (req: Request, res: Response) => {
       }
     }
 
-    // Check rawText duplicate
+    // Check rawText duplicate within 4 hours
     if (rawTextToSave.length > 10) {
-      const existingByRawText = await prisma.suggestion.findFirst({
+      const window4hStart = new Date(transactionDate.getTime() - 4 * 3600 * 1000);
+      const window4hEnd = new Date(transactionDate.getTime() + 4 * 3600 * 1000);
+      const existingByRawTextMatches = await prisma.suggestion.findMany({
         where: {
           userId,
           rawText: rawTextToSave,
           status: { in: ['pending', 'approved', 'synced'] },
+          transactionDate: { gte: window4hStart, lte: window4hEnd },
         },
-        select: { id: true },
+        select: { id: true, sourceId: true },
       });
-      if (existingByRawText) {
+
+      const incomingSourceId = parsed.sourceId ? String(parsed.sourceId) : undefined;
+      const trueRawMatch = existingByRawTextMatches.find((m) => {
+        // If both have distinct SMS source IDs, they are two separate physical SMS messages received by phone!
+        if (incomingSourceId && m.sourceId && incomingSourceId.startsWith('sms_') && m.sourceId.startsWith('sms_') && incomingSourceId !== m.sourceId) {
+          return false;
+        }
+        return true;
+      });
+
+      if (trueRawMatch) {
         duplicateCount++;
         continue;
       }
@@ -550,22 +588,6 @@ router.post('/bulk', authenticate, async (req: Request, res: Response) => {
       continue;
     }
 
-    // Multi-layer dedup check
-    const isDup = await dedupEngine.isDuplicate(
-      userId,
-      transactionDate,
-      amount,
-      parsed.referenceNumber,
-      parsed.accountLast4,
-      rawTextToSave,
-      parsed.sourceId ? String(parsed.sourceId) : undefined
-    );
-
-    if (isDup) {
-      duplicateCount++;
-      continue;
-    }
-
     // Account mapping match
     let matchedAccountId: string | undefined;
     if (parsed.accountLast4) {
@@ -583,7 +605,7 @@ router.post('/bulk', authenticate, async (req: Request, res: Response) => {
       const lowerText = rawTextToSave.toLowerCase();
       const isFastag = parsed.transactionMode === 'fastag' || /fastag/i.test(lowerText) || (parsed.accountLast4 && /^\d{4}$/.test(parsed.accountLast4) && /toll|plaza|mall/i.test(lowerText));
       const isFlipkart = parsed.bank === 'Flipkart' || /flipkart\s*(?:gift\s*card|gc)/i.test(lowerText);
-      const isAmazon = parsed.bank === 'Amazon Pay' || /amazon\s*pay/i.test(lowerText);
+      const isAmazon = parsed.bank === 'Amazon Pay' || /amazon\s*pay/i.test(lowerText) || /amazon/i.test(parsed.counterParty || '');
 
       if (isFastag) {
         const fastagAcc = activeMappedAccounts.find((acc) => /fastag/i.test(acc.name));
@@ -595,6 +617,32 @@ router.post('/bulk', authenticate, async (req: Request, res: Response) => {
         const amazonAcc = activeMappedAccounts.find((acc) => /amazon/i.test(acc.name));
         if (amazonAcc) matchedAccountId = amazonAcc.walletAccountId;
       }
+    }
+
+    // Multi-layer dedup check
+    const dupResult = await dedupEngine.findDuplicate(
+      userId,
+      transactionDate,
+      amount,
+      parsed.referenceNumber,
+      parsed.accountLast4,
+      rawTextToSave,
+      parsed.sourceId ? String(parsed.sourceId) : undefined,
+      parsed.counterParty
+    );
+
+    if (dupResult.isDuplicate) {
+      if (dupResult.matchedSuggestionId) {
+        await dedupEngine.enrichPendingSuggestion(dupResult.matchedSuggestionId, {
+          accountLast4: parsed.accountLast4,
+          matchedAccountId,
+          note: parsed.note || (parsed as any).note || (item as any).note,
+          referenceNumber: parsed.referenceNumber,
+          counterParty: parsed.counterParty,
+        });
+      }
+      duplicateCount++;
+      continue;
     }
 
     // AI Category suggestion
