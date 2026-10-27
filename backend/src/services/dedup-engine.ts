@@ -266,15 +266,18 @@ export class DedupEngine {
       const dataToUpdate: any = {};
       if (!existing.accountLast4 && updates.accountLast4) {
         dataToUpdate.accountLast4 = updates.accountLast4;
-        if (updates.matchedAccountId) {
-          dataToUpdate.walletAccountId = updates.matchedAccountId;
-        }
+      }
+      if (!existing.walletAccountId && updates.matchedAccountId) {
+        dataToUpdate.walletAccountId = updates.matchedAccountId;
       }
       if (!existing.referenceNumber && updates.referenceNumber) {
         dataToUpdate.referenceNumber = updates.referenceNumber;
       }
       if ((!existing.note || existing.note.trim() === '') && updates.note) {
         dataToUpdate.note = updates.note;
+      }
+      if ((!existing.counterParty || existing.counterParty.toLowerCase() === 'amazon') && updates.counterParty && updates.counterParty.toLowerCase() !== 'amazon') {
+        dataToUpdate.counterParty = updates.counterParty;
       }
 
       if (Object.keys(dataToUpdate).length > 0) {

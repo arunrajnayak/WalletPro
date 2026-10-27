@@ -25,8 +25,9 @@ object TransactionParser {
     private val ACCOUNT_REGEX = Pattern.compile("(?:A\\/c|Acct|Card|a\\/c|account|ending\\s*in)\\s*(?:no\\.?|ending)?\\s*[*xX]*([0-9]{3,5})", Pattern.CASE_INSENSITIVE)
     private val UPI_REGEX = Pattern.compile("(?:UPI\\s*(?:Ref|ref)(?:\\s*(?:No|no)\\.?)?|Ref(?:\\s*(?:No|no)\\.?)?|UTR)[\\s:\\.\\-]*([0-9]{6,16})", Pattern.CASE_INSENSITIVE)
     private val AMAZON_ORDER_REGEX = Pattern.compile("(?:order\\s*(?:#|no\\.?|id)?\\s*|#\\s*)([0-9]{3}-[0-9]{7}-[0-9]{7})", Pattern.CASE_INSENSITIVE)
+    private val BALANCE_REGEX = Pattern.compile("(?:Avl|Avail(?:able)?|Updated|Total)?\\s*Bal(?:ance)?\\s*[:\\s]*(?:INR|Rs\\.?|₹)?\\s*([\\d,]+\\.?\\d*)", Pattern.CASE_INSENSITIVE)
     private val MERCHANT_REGEX = Pattern.compile(
-        "(?:to\\s+vpa|to|at|from)\\s+([A-Za-z0-9\\s\\.\\&\\*\\-]+?)(?:\\s+(?:on|via|using|for|with|UPI|Ref|avl|bal|date|limit|\\.|\\,)|$)",
+        "(?:to\\s+vpa|to|at|from)\\s+([A-Za-z0-9\\s\\.\\&\\*\\-]+?)(?:\\s+(?:on|via|using|for|with|UPI|Ref|avl|bal|balance|date|limit|\\.|\\,)|$)",
         Pattern.CASE_INSENSITIVE
     )
     private val ORDER_ITEM_REGEX = Pattern.compile(
@@ -36,7 +37,7 @@ object TransactionParser {
 
     // Strict Anti-Spam / Promotional & Logistics filters
     private val SPAM_PROMO_REGEX = Pattern.compile(
-        "\\b(deal|deals|discount|flat\\s*(?:rs\\.?|inr|₹)|win\\b|chance\\s+to\\s+win|up\\s+to\\s*(?:rs\\.?|inr|₹)|offer|offers|coupon|coupons|price\\s+drop|save\\s*(?:rs\\.?|inr|₹)|cashback\\s+on\\b|quiz|jackpot|lightning\\s+deal)\\b",
+        "\\b(deal|deals|discount|flat\\s*(?:rs\\.?|inr|₹)|win\\b|chance\\s+to\\s+win|up\\s+to\\s*(?:rs\\.?|inr|₹)|offer|offers|coupon|coupons|price\\s+drop|save\\s*(?:rs\\.?|inr|₹)|cashback\\s+on\\b|quiz|jackpot|lightning\\s+deal|scratch\\s*card|tap\\s+to\\s+reveal|unlocked\\s+a\\s+scratch\\s*card|spin\\s+(?:to|&)\\s+win)\\b",
         Pattern.CASE_INSENSITIVE
     )
     private val CART_WISHLIST_REGEX = Pattern.compile(
@@ -48,7 +49,7 @@ object TransactionParser {
         Pattern.CASE_INSENSITIVE
     )
 
-    fun parse(text: String, dateMillis: Long): Map<String, Any?>? {
+    fun parse(text: String, dateMillis: Long, packageName: String? = null): Map<String, Any?>? {
         if (dateMillis < HARDCODED_START_MILLIS) {
             return null
         }
@@ -88,8 +89,10 @@ object TransactionParser {
             else -> null
         }
 
+        val lowerPackage = packageName?.lowercase(Locale.ROOT) ?: ""
+        val isAmazonPackage = lowerPackage.contains("amazon")
         val lowerText = text.lowercase(Locale.ROOT)
-        val isAmazonText = lowerText.contains("amazon")
+        val isAmazonText = isAmazonPackage || lowerText.contains("amazon")
 
         val merchantMatcher = MERCHANT_REGEX.matcher(text)
         var counterParty = if (merchantMatcher.find()) merchantMatcher.group(1)?.trim() else null
@@ -108,6 +111,9 @@ object TransactionParser {
 
             if (lowerText.contains("order placed") || lowerText.contains("order confirmed") || lowerText.contains("your order of")) {
                 counterParty = "Amazon"
+            } else if (lowerText.contains("insurance")) {
+                counterParty = "Amazon Pay Insurance"
+                note = "Insurance Payment"
             } else if (lowerText.contains("cashback")) {
                 counterParty = "Amazon Pay Cashback"
             } else if (lowerText.contains("refund")) {
@@ -118,14 +124,49 @@ object TransactionParser {
                 note = "Bill Payment: $counterParty"
             } else if (lowerText.contains("recharge")) {
                 val mobileMatch = Pattern.compile("(?:for|mobile)\\s*([0-9]{10})", Pattern.CASE_INSENSITIVE).matcher(text)
-                val target = if (mobileMatch.find()) mobileMatch.group(1) else null
+                val target = mobileMatch?.group(1)
                 counterParty = "Amazon Pay Recharge"
                 note = if (target != null) "Recharge: $target" else "Mobile Recharge"
             }
+
+            if (lowerText.contains("was paid on amazon") || lowerText.contains("using amazon pay balance") || lowerText.contains("at amazon.in")) {
+                if (counterParty == null || counterParty.contains("amazon", ignoreCase = true) || Pattern.compile("^(?:check|view|download|track|verify|click)\\b", Pattern.CASE_INSENSITIVE).matcher(counterParty).find()) {
+                    counterParty = if (lowerText.contains("insurance")) "Amazon Pay Insurance" else "Amazon"
+                }
+                if (note == null && lowerText.contains("amazon pay balance")) {
+                    note = "Amazon Pay Balance"
+                }
+            }
+        }
+
+        // Discard any counterParty that is an infinitive action verb phrase (e.g. "check order details", "click here", "view details")
+        if (counterParty != null && Pattern.compile("^(?:check|view|download|track|verify|click|know|see|pay|get|manage)\\b", Pattern.CASE_INSENSITIVE).matcher(counterParty).find()) {
+            counterParty = if (isAmazonText) (if (lowerText.contains("insurance")) "Amazon Pay Insurance" else "Amazon") else null
+        }
+
+        if (counterParty != null) {
+            counterParty = counterParty.replace(Regex("(?i)\\.(?:in|com)$"), "").trim()
         }
 
         if (counterParty != null && (counterParty.equals("vpa", ignoreCase = true) || counterParty.equals("amazon pay upi", ignoreCase = true))) {
             counterParty = if (isAmazonText) "Amazon" else null
+        }
+
+        val balanceMatcher = BALANCE_REGEX.matcher(text)
+        val balance = if (balanceMatcher.find()) {
+            balanceMatcher.group(1)?.replace(",", "")?.toDoubleOrNull()
+        } else null
+
+        val transactionMode: String? = when {
+            lowerText.contains("amazon pay balance") || lowerText.contains("amazon pay wallet") -> "wallet"
+            lowerText.contains("upi") || lowerText.contains("@") -> "upi"
+            lowerText.contains("card") || lowerText.contains("pos") -> "card"
+            else -> null
+        }
+
+        val bank: String? = when {
+            isAmazonText -> "Amazon Pay"
+            else -> null
         }
 
         val isoDateFormatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
@@ -133,7 +174,7 @@ object TransactionParser {
         }
         val isoDate = isoDateFormatter.format(Date(dateMillis))
 
-        return mapOf(
+        val resultMap = mutableMapOf<String, Any?>(
             "amount" to amount,
             "transactionType" to transactionType,
             "accountLast4" to accountLast4,
@@ -143,6 +184,10 @@ object TransactionParser {
             "transactionDate" to isoDate,
             "rawText" to text
         )
+        if (balance != null) resultMap["balance"] = balance
+        if (transactionMode != null) resultMap["transactionMode"] = transactionMode
+        if (bank != null) resultMap["bank"] = bank
+        return resultMap
     }
 
     /**
@@ -159,7 +204,7 @@ object TransactionParser {
             try {
                 val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
                 val baseUrl = prefs.getString("flutter.backend_base_url", null)
-                    ?: "https://walletpro-api.vercel.app" // fallback production API if set
+                    ?: "https://walletpro-arunraj.vercel.app" // Production API fallback
                 val apiKey = prefs.getString("flutter.api_key", null)
 
                 val isoDateFormatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {

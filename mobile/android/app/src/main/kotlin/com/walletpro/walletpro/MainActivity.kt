@@ -82,6 +82,16 @@ class MainActivity: FlutterActivity() {
         notifMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, NOTIF_CHANNEL).apply {
             setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "configureBackend" -> {
+                        val url = call.argument<String>("baseUrl")
+                        val key = call.argument<String>("apiKey")
+                        val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                        val editor = prefs.edit()
+                        if (!url.isNullOrEmpty()) editor.putString("flutter.backend_base_url", url)
+                        if (!key.isNullOrEmpty()) editor.putString("flutter.api_key", key)
+                        editor.apply()
+                        result.success(true)
+                    }
                     "updatePendingCount" -> {
                         val count = (call.argument<Number>("count"))?.toLong() ?: 0L
                         val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)

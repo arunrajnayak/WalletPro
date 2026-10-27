@@ -11,14 +11,14 @@ class SmsParser {
   static final _orderItemRegex = RegExp(r'(?:order\s+placed(?::|\s+for)?|order\s+of)\s*(?:Rs\.?|INR|₹)?\s*[\d,]+\.?\d*\s+(?:for|of)\s+([^.\n,]+)', caseSensitive: false);
 
   // Strict Anti-Spam / Promotional & Logistics filters
-  static final _spamPromoRegex = RegExp(r'\b(deal|deals|discount|flat\s*(?:rs\.?|inr|₹)|win\b|chance\s+to\s+win|up\s+to\s*(?:rs\.?|inr|₹)|offer|offers|coupon|coupons|price\s+drop|save\s*(?:rs\.?|inr|₹)|cashback\s+on\b|quiz|jackpot|lightning\s+deal)\b', caseSensitive: false);
+  static final _spamPromoRegex = RegExp(r'\b(deal|deals|discount|flat\s*(?:rs\.?|inr|₹)|win\b|chance\s+to\s+win|up\s+to\s*(?:rs\.?|inr|₹)|offer|offers|coupon|coupons|price\s+drop|save\s*(?:rs\.?|inr|₹)|cashback\s+on\b|quiz|jackpot|lightning\s+deal|scratch\s*card|tap\s+to\s+reveal|unlocked\s+a\s+scratch\s*card|spin\s+(?:to|&)\s+win)\b', caseSensitive: false);
   static final _cartWishlistRegex = RegExp(r'\b(items?\s+in\s+your\s+cart|complete\s+your\s+(?:order|purchase)|continue\s+shopping|wishlist|buy\s+again|recommended\s+for\s+you)\b', caseSensitive: false);
   static final _logisticsRegex = RegExp(r'\b(delivered\b|dispatched\b|shipped\b|out\s+for\s+delivery|arriving\s+(?:today|tomorrow|by)|track\s+your\s+package|handed\s+to\s+resident|delivery\s+attempted|package\s+arrived|rate\s+your|review\s+your|how\s+was|share\s+your\s+feedback)\b', caseSensitive: false);
 
   // Hardcoded start date: 1st September 2026 UTC
   static final DateTime hardcodedStartDate = DateTime.utc(2026, 9, 1);
 
-  static Map<String, dynamic>? parse(String smsText, {DateTime? messageDate}) {
+  static Map<String, dynamic>? parse(String smsText, {DateTime? messageDate, String? senderHeader}) {
     try {
       final date = (messageDate ?? DateTime.now()).toUtc();
 
@@ -74,7 +74,7 @@ class SmsParser {
       final merchantMatch = _merchantRegex.firstMatch(smsText);
 
       final lowerText = smsText.toLowerCase();
-      final isAmazonText = lowerText.contains('amazon');
+      final isAmazonText = lowerText.contains('amazon') || (senderHeader != null && senderHeader.toLowerCase().contains('amazon'));
       String? note;
 
       String? counterParty = merchantMatch?.group(1)?.trim();
@@ -92,6 +92,9 @@ class SmsParser {
 
         if (lowerText.contains('order placed') || lowerText.contains('order confirmed') || lowerText.contains('your order of')) {
           counterParty = 'Amazon';
+        } else if (lowerText.contains('insurance')) {
+          counterParty = 'Amazon Pay Insurance';
+          note = 'Insurance Payment';
         } else if (lowerText.contains('cashback')) {
           counterParty = 'Amazon Pay Cashback';
         } else if (lowerText.contains('refund')) {
@@ -106,6 +109,25 @@ class SmsParser {
           counterParty = 'Amazon Pay Recharge';
           note = target != null ? 'Recharge: $target' : 'Mobile Recharge';
         }
+
+        if (lowerText.contains('was paid on amazon') || lowerText.contains('using amazon pay balance') || lowerText.contains('at amazon.in')) {
+          if (counterParty == null || counterParty.toLowerCase().contains('amazon') || RegExp(r'^(?:check|view|download|track|verify|click)\b', caseSensitive: false).hasMatch(counterParty)) {
+            counterParty = lowerText.contains('insurance') ? 'Amazon Pay Insurance' : 'Amazon';
+          }
+          if (note == null && lowerText.contains('amazon pay balance')) {
+            note = 'Amazon Pay Balance';
+          }
+        }
+      }
+
+      // Discard any counterParty that is an infinitive action verb phrase (e.g. "check order details", "click here", "view details")
+      if (counterParty != null && RegExp(r'^(?:check|view|download|track|verify|click|know|see|pay|get|manage)\b', caseSensitive: false).hasMatch(counterParty)) {
+        counterParty = isAmazonText ? (lowerText.contains('insurance') ? 'Amazon Pay Insurance' : 'Amazon') : null;
+      }
+
+      if (counterParty != null) {
+        // Strip trailing .in or .com (e.g. "Amazon.in" -> "Amazon")
+        counterParty = counterParty.replaceAll(RegExp(r'\.(?:in|com)$', caseSensitive: false), '').trim();
       }
 
       if (counterParty == null || counterParty.isEmpty || counterParty.toLowerCase() == 'vpa' || counterParty.toLowerCase() == 'amazon pay upi') {

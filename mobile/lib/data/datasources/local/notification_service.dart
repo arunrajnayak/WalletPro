@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import '../../../core/constants/api_constants.dart';
 
 class NotificationService {
   static const MethodChannel _channel = MethodChannel('com.walletpro/notifications');
@@ -14,6 +15,9 @@ class NotificationService {
     });
 
     try {
+      await _channel.invokeMethod('configureBackend', {
+        'baseUrl': ApiConstants.backendBaseUrl,
+      });
       await _channel.invokeMethod('requestPostNotificationPermission');
       await _channel.invokeMethod('scheduleReviewReminder');
     } catch (_) {}

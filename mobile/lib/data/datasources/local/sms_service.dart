@@ -83,12 +83,12 @@ class SmsReaderService {
         continue;
       }
 
-      final parsed = SmsParser.parse(body, messageDate: msgDate);
+      final sender = (msg['sender'] ?? '').toString().replaceAll('+', '').trim();
+      final parsed = SmsParser.parse(body, messageDate: msgDate, senderHeader: sender);
       if (parsed != null) {
         detected++;
         parsed['transactionDate'] ??= msgDate.toUtc().toIso8601String();
 
-        final sender = (msg['sender'] ?? '').toString().replaceAll('+', '').trim();
         final androidMsgId = msg['id']?.toString() ?? msg['_id']?.toString();
         final sourceId = (sender.isNotEmpty && dateMillis > 0)
             ? 'sms_${sender}_$dateMillis'

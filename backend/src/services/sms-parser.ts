@@ -53,7 +53,7 @@ export class SmsParser {
     if (!text || typeof text !== 'string') return null;
 
     // 0. Discard marketing/promotions, cart/wishlist prompts, and delivery tracking updates
-    const isPromoSpam = /\b(?:deal|deals|discount|flat\s*(?:rs\.?|inr|₹)|win\b|chance\s+to\s+win|up\s+to\s*(?:rs\.?|inr|₹)|offer|offers|coupon|coupons|price\s+drop|save\s*(?:rs\.?|inr|₹)|cashback\s+on\b|quiz|jackpot|lightning\s+deal)\b/i.test(text);
+    const isPromoSpam = /\b(?:deal|deals|discount|flat\s*(?:rs\.?|inr|₹)|win\b|chance\s+to\s+win|up\s+to\s*(?:rs\.?|inr|₹)|offer|offers|coupon|coupons|price\s+drop|save\s*(?:rs\.?|inr|₹)|cashback\s+on\b|quiz|jackpot|lightning\s+deal|scratch\s*card|tap\s+to\s+reveal|unlocked\s+a\s+scratch\s*card|spin\s+(?:to|&)\s+win)\b/i.test(text);
     const isCartPrompt = /\b(?:items?\s+in\s+your\s+cart|complete\s+your\s+(?:order|purchase)|continue\s+shopping|wishlist|buy\s+again|recommended\s+for\s+you)\b/i.test(text);
     const isLogisticsUpdate = /\b(?:delivered\b|dispatched\b|shipped\b|out\s+for\s+delivery|arriving\s+(?:today|tomorrow|by)|track\s+your\s+package|handed\s+to\s+resident|delivery\s+attempted|package\s+arrived|rate\s+your|review\s+your|how\s+was|share\s+your\s+feedback)\b/i.test(text);
 
@@ -147,7 +147,7 @@ export class SmsParser {
       if (counterParty.length > 50) counterParty = counterParty.substring(0, 50).trim();
     }
 
-    const isAmazonText = lower.includes('amazon');
+    const isAmazonText = lower.includes('amazon') || Boolean(senderHeader && /amazon/i.test(senderHeader));
 
     if (isAmazonText) {
       const orderItemMatch = text.match(/(?:order\s+placed(?::|\s+for)?|order\s+of)\s*(?:Rs\.?|INR|₹)?\s*[0-9,]+\.?\d*\s+(?:for|of)\s+([^.\n,]+)/i);
@@ -161,6 +161,9 @@ export class SmsParser {
 
       if (lower.includes('order placed') || lower.includes('order confirmed') || lower.includes('your order of')) {
         counterParty = 'Amazon';
+      } else if (lower.includes('insurance')) {
+        counterParty = 'Amazon Pay Insurance';
+        note = 'Insurance Payment';
       } else if (lower.includes('cashback')) {
         counterParty = 'Amazon Pay Cashback';
       } else if (lower.includes('refund')) {
@@ -175,6 +178,25 @@ export class SmsParser {
         counterParty = 'Amazon Pay Recharge';
         note = target ? `Recharge: ${target}` : 'Mobile Recharge';
       }
+
+      if (lower.includes('was paid on amazon') || lower.includes('using amazon pay balance') || lower.includes('at amazon.in')) {
+        if (!counterParty || counterParty.toLowerCase().includes('amazon') || /^(?:check|view|download|track|verify|click)\b/i.test(counterParty)) {
+          counterParty = lower.includes('insurance') ? 'Amazon Pay Insurance' : 'Amazon';
+        }
+        if (!note && lower.includes('amazon pay balance')) {
+          note = 'Amazon Pay Balance';
+        }
+      }
+    }
+
+    // Discard any counterParty that is an infinitive action verb phrase (e.g. "check order details", "click here", "view details")
+    if (counterParty && /^(?:check|view|download|track|verify|click|know|see|pay|get|manage)\b/i.test(counterParty)) {
+      counterParty = isAmazonText ? (lower.includes('insurance') ? 'Amazon Pay Insurance' : 'Amazon') : undefined;
+    }
+
+    if (counterParty) {
+      // Strip trailing .in or .com (e.g. "Amazon.in" -> "Amazon")
+      counterParty = counterParty.replace(/\.(?:in|com)$/i, '').trim();
     }
 
     if (!counterParty || counterParty.toLowerCase() === 'vpa' || counterParty.toLowerCase() === 'amazon pay upi') {

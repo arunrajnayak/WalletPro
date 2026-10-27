@@ -142,6 +142,33 @@ async function runTests() {
     console.log('  ✅ 11. Amazon Pay ICICI Credit Card payment passed');
   }
 
+  // 12. Amazon Insurance Payment
+  {
+    const text = 'Your Insurance payment is successful.: Your Insurance payment of Rs 17986.00 is successful. Please click here to check order details.';
+    const res = parser.parse(text, testDate, 'Amazon');
+    assert(res !== null, 'Should parse Amazon insurance payment');
+    assert(res!.amount === 17986, `Expected 17986, got ${res?.amount}`);
+    assert(res!.transactionType === 'expense', 'Expected expense');
+    assert(res!.counterParty === 'Amazon Pay Insurance', `Expected Amazon Pay Insurance, got ${res?.counterParty}`);
+    assert(res!.note === 'Insurance Payment', `Expected Insurance Payment note, got ${res?.note}`);
+    assert(res!.bank === 'Amazon Pay', `Expected Amazon Pay, got ${res?.bank}`);
+    console.log('  ✅ 12. Amazon Insurance Payment notification passed');
+  }
+
+  // 13. Amazon Pay Balance Debit with Balance
+  {
+    const text = 'Rs 17986.00 was paid on Amazon.in: Payment of Rs 17986.00 using Amazon Pay Balance is successful at Amazon.in. Updated Balance: Rs 36730.53. For help/stmt: https://www.amazon.in/cstxn';
+    const res = parser.parse(text, testDate, 'Amazon');
+    assert(res !== null, 'Should parse Amazon Pay Balance debit');
+    assert(res!.amount === 17986, `Expected 17986, got ${res?.amount}`);
+    assert(res!.counterParty === 'Amazon', `Expected Amazon, got ${res?.counterParty}`);
+    assert(res!.note === 'Amazon Pay Balance', `Expected Amazon Pay Balance note, got ${res?.note}`);
+    assert(res!.balance === 36730.53, `Expected balance 36730.53, got ${res?.balance}`);
+    assert(res!.transactionMode === 'wallet', `Expected wallet mode, got ${res?.transactionMode}`);
+    assert(res!.bank === 'Amazon Pay', `Expected Amazon Pay, got ${res?.bank}`);
+    console.log('  ✅ 13. Amazon Pay Balance payment with balance passed');
+  }
+
   // --- NEGATIVE / ANTI-SPAM TEST CASES ---
   console.log('\n--- Testing Negative Anti-Spam & Delivery Filters ---');
 
@@ -156,6 +183,7 @@ async function runTests() {
     { name: 'Out for Delivery', text: 'Amazon.in: Out for delivery: Your package will arrive today by 8 PM' },
     { name: 'Dispatched Update', text: 'Amazon.in: Shipped: Order #402-1234567-1234567 has been dispatched' },
     { name: 'Product Review Request', text: 'Amazon.in: Rate your recent purchase: How was the Apple AirPods Case?' },
+    { name: 'Scratch Card Reward', text: 'Amazon: You won a r... Rewards: Tap to reveal your scratch card!' },
   ];
 
   for (const tc of negativeCases) {

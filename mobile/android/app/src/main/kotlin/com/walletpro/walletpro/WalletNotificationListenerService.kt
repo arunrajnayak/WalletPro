@@ -33,7 +33,7 @@ class WalletNotificationListenerService : NotificationListenerService() {
 
             if (combinedText.isBlank()) return
 
-            val parsed = TransactionParser.parse(combinedText, postTime)
+            val parsed = TransactionParser.parse(combinedText, postTime, pkgName)
             if (parsed != null) {
                 Log.d(TAG, "Financial notification detected from $pkgName: amount=${parsed["amount"]}")
 
