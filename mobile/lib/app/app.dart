@@ -4,10 +4,12 @@ import '../core/utils/stats_parser.dart';
 import '../data/datasources/local/notification_service.dart';
 import '../data/datasources/local/sms_service.dart';
 import '../data/datasources/remote/api_client.dart';
+import '../presentation/providers/app_lock_provider.dart';
 import '../presentation/providers/app_update_provider.dart';
 import '../presentation/providers/pending_count_provider.dart';
 import '../presentation/providers/suggestions_provider.dart';
 import '../presentation/providers/theme_provider.dart';
+import '../presentation/screens/app_lock/app_lock_screen.dart';
 import 'router.dart';
 import 'theme.dart';
 
@@ -35,6 +37,9 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
 
     // Check if app was launched via notification click
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Load App Lock setting before any routing
+      ref.read(appLockProvider.notifier).loadSettings();
+
       final initialRoute = await NotificationService.getInitialRoute();
       if (initialRoute != null && initialRoute.isNotEmpty && mounted) {
         ref.read(routerProvider).go(initialRoute);
@@ -52,6 +57,9 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      ref.read(appLockProvider.notifier).lock();
+    }
     if (state == AppLifecycleState.resumed) {
       _triggerAutoScan();
       _triggerAutoUpdateCheck();
@@ -119,7 +127,22 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
   @override
   Widget build(BuildContext context) {
     final router = ref.watch(routerProvider);
+    // ignore: unused_local_variable — kept for future theme-switching support
     final themeMode = ref.watch(themeModeProvider);
+    final appLockState = ref.watch(appLockProvider);
+
+    // When App Lock is enabled and the app is locked, show the lock screen
+    // using a plain MaterialApp (no router needed at this point).
+    if (appLockState.isEnabled && !appLockState.isUnlocked) {
+      return MaterialApp(
+        title: 'WalletPro',
+        theme: AppTheme.darkTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: ThemeMode.dark,
+        debugShowCheckedModeBanner: false,
+        home: const AppLockScreen(),
+      );
+    }
 
     return MaterialApp.router(
       title: 'WalletPro',

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/datasources/remote/api_client.dart';
 import '../../../core/utils/date_formatter.dart';
+import '../../../services/biometric_service.dart';
+import '../../providers/app_lock_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/wallet_provider.dart';
 import '../../providers/app_update_provider.dart';
@@ -307,6 +309,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final isDark = theme.brightness == Brightness.dark;
     final accounts = ref.watch(walletAccountsProvider);
     final updateState = ref.watch(appUpdateProvider);
+    final appLockState = ref.watch(appLockProvider);
 
     final rateLimit = _walletProfile?['rateLimit'] as Map<String, dynamic>?;
     final remainingCalls = rateLimit?['remaining'] ?? 0;
@@ -596,12 +599,120 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                 const SizedBox(height: 16),
 
+                // 3. Security & App Lock Card
+                _buildSecurityCard(theme, isDark, appLockState),
+
+                const SizedBox(height: 16),
+
                 // 5. App Updates & Version Card
                 _buildAppUpdatesCard(theme, isDark, updateState),
 
                 const SizedBox(height: 36),
               ],
             ),
+    );
+  }
+
+  Widget _buildSecurityCard(
+    ThemeData theme,
+    bool isDark,
+    AppLockState appLockState,
+  ) {
+    final notifier = ref.read(appLockProvider.notifier);
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header row
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: theme.colorScheme.primaryContainer,
+                child: Icon(Icons.lock_outline, size: 16, color: theme.colorScheme.primary),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'Security & App Lock',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Protect WalletPro with your fingerprint or device PIN.',
+            style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 4),
+
+          // App Lock toggle
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: const Text(
+              'App Lock',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            subtitle: const Text(
+              'Require authentication when opening the app',
+              style: TextStyle(fontSize: 11),
+            ),
+            value: appLockState.isEnabled,
+            onChanged: (val) async {
+              if (val) {
+                // Check availability before enabling
+                final available = await BiometricService.isAvailable();
+                if (!available) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Biometric authentication not available on this device',
+                        ),
+                      ),
+                    );
+                  }
+                  return;
+                }
+                await notifier.enable();
+              } else {
+                await notifier.disable();
+              }
+            },
+          ),
+
+          // Info row shown when enabled
+          if (appLockState.isEnabled) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(
+                  Icons.fingerprint,
+                  size: 16,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Biometric or PIN authentication required on app open',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 
