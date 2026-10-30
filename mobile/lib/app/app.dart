@@ -38,7 +38,7 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
     // Check if app was launched via notification click
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // Load App Lock setting before any routing
-      ref.read(appLockProvider.notifier).loadSettings();
+      await ref.read(appLockProvider.notifier).loadSettings();
 
       final initialRoute = await NotificationService.getInitialRoute();
       if (initialRoute != null && initialRoute.isNotEmpty && mounted) {

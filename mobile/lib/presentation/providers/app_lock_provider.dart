@@ -41,9 +41,11 @@ class AppLockNotifier extends StateNotifier<AppLockState> {
   }
 
   /// Enables App Lock and persists the setting.
+  /// Keeps the current session unlocked — the lock kicks in next time
+  /// the app is backgrounded.
   Future<void> enable() async {
     await LocalCache.setString(_kAppLockKey, 'true');
-    state = state.copyWith(isEnabled: true, isUnlocked: false);
+    state = state.copyWith(isEnabled: true, isUnlocked: true);
   }
 
   /// Disables App Lock and persists the setting.
