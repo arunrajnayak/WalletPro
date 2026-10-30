@@ -25,6 +25,12 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
   final SmsReaderService _smsReader = SmsReaderService();
   bool _isAutoScanning = false;
 
+  /// Timestamp when the app last entered the paused state. Used to implement
+  /// a grace period so that brief system overlays (biometric prompt, APK
+  /// install dialog, permission dialogs) don't trigger the app lock.
+  DateTime? _pausedAt;
+  static const _lockGracePeriod = Duration(seconds: 3);
+
   @override
   void initState() {
     super.initState();
@@ -58,9 +64,17 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
-      ref.read(appLockProvider.notifier).lock();
-    }
-    if (state == AppLifecycleState.resumed) {
+      // Record when we went to background; don't lock yet.
+      _pausedAt = DateTime.now();
+    } else if (state == AppLifecycleState.resumed) {
+      // Only lock if the app was backgrounded longer than the grace period.
+      // This prevents the biometric prompt, APK install dialog, and other
+      // brief system overlays from triggering the lock.
+      if (_pausedAt != null &&
+          DateTime.now().difference(_pausedAt!) >= _lockGracePeriod) {
+        ref.read(appLockProvider.notifier).lock();
+      }
+      _pausedAt = null;
       _triggerAutoScan();
       _triggerAutoUpdateCheck();
     }

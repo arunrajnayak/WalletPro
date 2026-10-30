@@ -3,11 +3,32 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../presentation/providers/app_lock_provider.dart';
 
 /// Full-screen lock gate shown when App Lock is enabled and the app is locked.
-class AppLockScreen extends ConsumerWidget {
+class AppLockScreen extends ConsumerStatefulWidget {
   const AppLockScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AppLockScreen> createState() => _AppLockScreenState();
+}
+
+class _AppLockScreenState extends ConsumerState<AppLockScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Auto-trigger biometric prompt as soon as the lock screen appears.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _authenticate());
+  }
+
+  Future<void> _authenticate() async {
+    final success = await ref.read(appLockProvider.notifier).authenticate();
+    if (!success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Authentication failed. Tap to try again.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -67,17 +88,7 @@ class AppLockScreen extends ConsumerWidget {
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
-                  onPressed: () async {
-                    final success =
-                        await ref.read(appLockProvider.notifier).authenticate();
-                    if (!success && context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Authentication failed. Try again.'),
-                        ),
-                      );
-                    }
-                  },
+                  onPressed: _authenticate,
                 ),
               ],
             ),
