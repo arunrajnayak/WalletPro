@@ -1,28 +1,32 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
 
-/// Singleton-style service wrapping `local_auth` for biometric / device-PIN
-/// authentication checks throughout the app.
+/// Service wrapping `local_auth` for biometric / device-credential
+/// authentication. Requires MainActivity to extend FlutterFragmentActivity.
 class BiometricService {
   static final _auth = LocalAuthentication();
 
-  /// Returns `true` when the device supports biometrics AND at least one
-  /// biometric credential (fingerprint, face, etc.) is enrolled.
+  /// Returns `true` when the device can authenticate — either via biometrics
+  /// (fingerprint, face, iris) OR via device credentials (PIN, pattern,
+  /// password). Uses both `canCheckBiometrics` and `isDeviceSupported()` so
+  /// that PIN-only devices are not incorrectly excluded.
   static Future<bool> isAvailable() async {
     try {
-      final canCheck = await _auth.canCheckBiometrics;
-      if (!canCheck) return false;
-      final biometrics = await _auth.getAvailableBiometrics();
-      return biometrics.isNotEmpty;
-    } on PlatformException {
+      final canCheckBiometrics = await _auth.canCheckBiometrics;
+      final isDeviceSupported = await _auth.isDeviceSupported();
+      return canCheckBiometrics || isDeviceSupported;
+    } on PlatformException catch (e) {
+      debugPrint('[BiometricService] isAvailable error: ${e.code} – ${e.message}');
       return false;
     }
   }
 
   /// Prompts the user to authenticate.
   ///
-  /// [reason] is the human-readable string shown in the system dialog.
   /// `biometricOnly: false` allows fallback to the device PIN / pattern.
+  /// `stickyAuth: true` keeps the prompt alive if the app is briefly
+  /// backgrounded (e.g. by a system overlay).
   /// Returns `true` on successful authentication, `false` otherwise.
   static Future<bool> authenticate({
     String reason = 'Authenticate to access WalletPro',
@@ -35,7 +39,8 @@ class BiometricService {
           stickyAuth: true,
         ),
       );
-    } on PlatformException {
+    } on PlatformException catch (e) {
+      debugPrint('[BiometricService] authenticate error: ${e.code} – ${e.message}');
       return false;
     }
   }

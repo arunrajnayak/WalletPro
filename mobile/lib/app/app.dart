@@ -143,20 +143,6 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
     final router = ref.watch(routerProvider);
     // ignore: unused_local_variable — kept for future theme-switching support
     final themeMode = ref.watch(themeModeProvider);
-    final appLockState = ref.watch(appLockProvider);
-
-    // When App Lock is enabled and the app is locked, show the lock screen
-    // using a plain MaterialApp (no router needed at this point).
-    if (appLockState.isEnabled && !appLockState.isUnlocked) {
-      return MaterialApp(
-        title: 'WalletPro',
-        theme: AppTheme.darkTheme,
-        darkTheme: AppTheme.darkTheme,
-        themeMode: ThemeMode.dark,
-        debugShowCheckedModeBanner: false,
-        home: const AppLockScreen(),
-      );
-    }
 
     return MaterialApp.router(
       title: 'WalletPro',
@@ -165,6 +151,16 @@ class _WalletProAppState extends ConsumerState<WalletProApp> with WidgetsBinding
       themeMode: ThemeMode.dark,
       routerConfig: router,
       debugShowCheckedModeBanner: false,
+      builder: (context, child) {
+        // Overlay the lock screen on top of the entire router when locked.
+        // Using builder keeps a single MaterialApp — no widget-tree teardown
+        // on lock/unlock and no context issues with the biometric prompt.
+        final lockState = ref.watch(appLockProvider);
+        if (lockState.isEnabled && !lockState.isUnlocked) {
+          return const AppLockScreen();
+        }
+        return child!;
+      },
     );
   }
 }

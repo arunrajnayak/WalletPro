@@ -14,8 +14,13 @@ class _AppLockScreenState extends ConsumerState<AppLockScreen> {
   @override
   void initState() {
     super.initState();
-    // Auto-trigger biometric prompt as soon as the lock screen appears.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _authenticate());
+    // Auto-trigger biometric prompt once the frame is fully committed.
+    // The 200 ms delay ensures the FragmentManager is ready after any
+    // widget-tree churn (prevents rare "Fragment not attached" crashes).
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future.delayed(const Duration(milliseconds: 200));
+      if (mounted) _authenticate();
+    });
   }
 
   Future<void> _authenticate() async {
